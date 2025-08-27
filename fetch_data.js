@@ -8,9 +8,9 @@ import { log } from './logger.js';
 // --- Configuration ---
 const BINANCE_PAIR = 'BTCUSDT'; // Binance uses 'USDT'
 const KRAKEN_PAIR_FILENAME = 'XBTUSD'; // We'll still name the file for Kraken
-const INTERVAL = '1h'; // Binance uses '1h' for 1-hour
-const OUTPUT_FILE = `./data/${KRAKEN_PAIR_FILENAME}_60m_data.csv`;
-const START_DATE = '2022-01-01T00:00:00Z';
+const INTERVAL = '3m'; // Binance uses '1h' for 1-hour
+const OUTPUT_FILE = `./data/${KRAKEN_PAIR_FILENAME}_3m_data.csv`;
+const START_DATE = '2025-07-01T00:00:00Z';
 const BATCH_SIZE = 1000; // Binance allows up to 1000 candles per request
 
 /**
