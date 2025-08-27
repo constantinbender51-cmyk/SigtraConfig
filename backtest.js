@@ -7,7 +7,7 @@ import { log } from './logger.js';
 
 // --- Configuration ---
 const config = {
-    DATA_FILE_PATH: './data/XBTUSD_60m_data.csv',
+    DATA_FILE_PATH: './data/XBTUSD_3m_data.csv',
     INITIAL_BALANCE: 10000,
     MINIMUM_CONFIDENCE_THRESHOLD: 0,
     MIN_SECONDS_BETWEEN_CALLS: 10,
