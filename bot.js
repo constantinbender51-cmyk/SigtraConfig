@@ -13,9 +13,9 @@ startWebServer();
 /* ---------- constants ---------- */
 const PAIR      = 'PF_XBTUSD';
 const OHLC_PAIR = 'XBTUSD';
-const INTERVAL  = 60;
+const INTERVAL  = 3;
 const MIN_CONF  = 40;
-const CYCLE_MS  = 3_600_000;
+const CYCLE_MS  = 1_800_000;
 
 /* ---------- state ---------- */
 let sigCnt   = 0;
