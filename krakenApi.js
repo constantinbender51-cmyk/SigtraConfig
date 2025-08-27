@@ -4,7 +4,7 @@ import axios from 'axios';
 import qs from 'querystring';
 
 const SPOT_OHLC_URL = 'https://api.kraken.com/0/public/OHLC';
-const BASE_URL      = 'https://futures.kraken.com';
+const BASE_URL      = 'https://demo-futures.kraken.com';
 
 export class KrakenFuturesApi {
   constructor(apiKey, apiSecret, baseUrl = BASE_URL) {
