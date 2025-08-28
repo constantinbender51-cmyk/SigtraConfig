@@ -93,6 +93,10 @@ export class ExecutionHandler {
             const stopLimitPrice = (closeSide === 'sell')
                 ? Math.round(stopLoss * (1 - stopSlippagePercent))
                 : Math.round(stopLoss * (1 + stopSlippagePercent));
+            
+            // Apply Math.round() to ensure stopPrice and takeProfit have no floating points
+            const roundedStopLoss = Math.round(stopLoss);
+            const roundedTakeProfit = Math.round(takeProfit);
 
             const batchOrderPayload = {
                 batchOrder: [
@@ -105,7 +109,7 @@ export class ExecutionHandler {
                         side: closeSide,
                         size: size,
                         limitPrice: stopLimitPrice,
-                        stopPrice: stopLoss,
+                        stopPrice: roundedStopLoss, // stopLoss value rounded to the nearest integer
                         reduceOnly: true
                     },
                     // The Take-Profit Order (Limit Order)
@@ -116,7 +120,7 @@ export class ExecutionHandler {
                         symbol: pair,
                         side: closeSide,
                         size: size,
-                        limitPrice: takeProfit,
+                        limitPrice: roundedTakeProfit, // takeProfit value rounded to the nearest integer
                         reduceOnly: true
                     }
                 ]
