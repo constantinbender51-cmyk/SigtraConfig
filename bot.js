@@ -13,7 +13,9 @@ startWebServer();
 /* ---------- constants ---------- */
 const PAIR = 'PF_XBTUSD';
 const OHLC_PAIR = 'XBTUSD';
-const INTERVAL = 3;
+// The Kraken API supports intervals of 1, 5, 15, 30, 60, 240, 1440, etc.
+// The bot's desired interval is 3 minutes, which we will now construct.
+const INTERVAL = 3; 
 const MIN_CONF = 40;
 const CYCLE_MS = 1_800_000;
 
@@ -31,6 +33,45 @@ const pnls = [];             // closed-trade PnLs
 const equity = [];           // balance history for DD
 
 /* ---------- helpers ---------- */
+
+/**
+ * Aggregates an array of 1-minute OHLC candles into 3-minute candles.
+ * This is necessary because Kraken's API does not support 3-minute intervals directly.
+ * @param {Array<Object>} candles - An array of 1-minute candle objects from the API.
+ * @returns {Array<Object>} - A new array of 3-minute candle objects.
+ */
+const createThreeMinuteCandles = (candles) => {
+    const threeMinCandles = [];
+    if (!candles || candles.length < 3) {
+        log.warn('Not enough 1-minute data to create 3-minute candles.');
+        return threeMinCandles;
+    }
+
+    // Process candles in groups of 3
+    for (let i = 0; i < candles.length; i += 3) {
+        // Ensure there are at least 3 candles remaining
+        if (i + 2 < candles.length) {
+            const group = candles.slice(i, i + 3);
+            const newCandle = {
+                // The open price is the open of the first candle in the group
+                open: group[0].open,
+                // The highest price is the maximum high from all candles in the group
+                high: Math.max(...group.map(c => c.high)),
+                // The lowest price is the minimum low from all candles in the group
+                low: Math.min(...group.map(c => c.low)),
+                // The close price is the close of the last candle in the group
+                close: group[2].close,
+                // The volume is the sum of volumes from all candles in the group
+                volume: group.reduce((sum, c) => sum + c.volume, 0),
+                // The timestamp is the timestamp of the last candle in the group
+                time: group[2].time
+            };
+            threeMinCandles.push(newCandle);
+        }
+    }
+    return threeMinCandles;
+};
+
 const annualise = (arr) => {
     if (arr.length < 2) return 0;
     const μ = arr.reduce((a, b) => a + b, 0) / arr.length;
@@ -72,19 +113,24 @@ async function cycle() {
 
         let market;
         try {
-            log.info('Fetching market data...');
-            market = await data.fetchAllData(OHLC_PAIR, INTERVAL);
-            log.info('Market data fetched successfully.');
+            log.info('Fetching market data (1-minute interval)...');
+            // Fetch 1-minute data, which is a supported interval
+            const rawMarketData = await data.fetchAllData(OHLC_PAIR, 1);
+
+            // Reconstruct the OHLC data from the raw 1-minute candles
+            rawMarketData.ohlc = createThreeMinuteCandles(rawMarketData.ohlc);
+
+            log.info('Market data fetched and aggregated successfully.');
+            market = rawMarketData;
+
         } catch (dataError) {
-            log.error('Failed to fetch market data:', dataError.message);
-            // Log the full error for debugging
+            log.error('Failed to fetch and process market data:', dataError.message);
             log.debug('Full data fetch error object:', dataError);
             return; // Skip the rest of the cycle if data fetch fails
         }
 
-        // Validate market data before proceeding
         if (!market || market.balance === undefined || !market.ohlc || !market.ohlc.length) {
-            log.warn('Incomplete or invalid market data received. Skipping this cycle.');
+            log.warn('Incomplete or invalid market data received after aggregation. Skipping this cycle.');
             return;
         }
 
@@ -92,7 +138,6 @@ async function cycle() {
         equity.push(curBalance);
         log.info(`Current balance: ${curBalance} USD`);
 
-        // daily return
         if (lastBalance !== null) {
             returns.push((curBalance - lastBalance) / lastBalance);
             if (returns.length > 30) returns.shift();
@@ -101,28 +146,24 @@ async function cycle() {
 
         const open = market.positions?.openPositions?.filter(p => p.symbol === PAIR) || [];
 
-        /* position just closed */
         if (!open.length && lastBalance !== null) {
             const pnl = curBalance - firstBalance;
             pnls.push(pnl);
             log.info(`Position closed. Realized PnL: ${pnl} USD`);
             recordStats();
-            lastBalance = curBalance; // Update last balance after a PnL record
+            lastBalance = curBalance; 
         }
 
-        /* first flat cycle */
         if (firstBalance === null && !open.length) {
             firstBalance = lastBalance = curBalance;
             log.metric('initial_balance', firstBalance, 'USD');
         }
 
-        /* already in position */
         if (open.length) {
             log.info('Position open; skipping trading logic.');
             return;
         }
 
-        /* generate signal & trade */
         let signal;
         try {
             log.info('Generating trading signal...');
