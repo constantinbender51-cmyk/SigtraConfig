@@ -87,7 +87,7 @@ async function cycle() {
         try {
             log.info("--- Placing a test market order for debugging ---");
             const rawMarketData = await data.fetchAllData(OHLC_PAIR, 1);
-            const lastPrice = 114000;
+            const lastPrice = rawMarketData?.ohlc.at(-1)?.close;
 
             if (lastPrice) {
                 const testParams = {
