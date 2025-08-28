@@ -107,7 +107,7 @@ async function cycle() {
     try {
         const { KRAKEN_API_KEY, KRAKEN_SECRET_KEY } = process.env;
         if (!KRAKEN_API_KEY || !KRAKEN_SECRET_KEY) {
-            log.error('Missing API keys. Please set KRAKEN_API_KEY and KRAKEN_SECRET_KEY in your .env file.');
+            log.error('Missing API keys. Please set KRAKEN_API_KEY and KRAKEN_SECRET_KEY in your .env file.', new Error('Missing environment variables'));
             return;
         }
 
@@ -130,8 +130,7 @@ async function cycle() {
             market = rawMarketData;
 
         } catch (dataError) {
-            log.error('Failed to fetch and process market data:', dataError.message);
-            log.debug('Full data fetch error object:', dataError);
+            log.error('Failed to fetch and process market data.', dataError);
             return; // Skip the rest of the cycle if data fetch fails
         }
 
@@ -176,20 +175,17 @@ async function cycle() {
             signal = await strat.generateSignal(market);
             log.metric('signal_cnt', ++sigCnt);
         } catch (signalError) {
-            log.error('Failed to generate trading signal:', signalError.message);
-            log.debug('Full signal generation error object:', signalError);
+            log.error('Failed to generate trading signal.', signalError);
             return;
         }
 
         if (signal.signal !== 'HOLD' && signal.confidence >= MIN_CONF) {
             log.info(`Signal generated: ${signal.signal}, Confidence: ${signal.confidence}. Signal meets confidence threshold of ${MIN_CONF}.`);
             
-            log.info('Calculating trade parameters...');
             const params = risk.calculateTradeParameters(market, signal);
 
             if (params) {
-                log.info(`Trade parameters calculated. Quantity: ${params.volume}, Stop Loss: ${params.stopLoss}, Take Profit: ${params.takeProfit}`);
-                log.info('Attempting to place order...');
+                log.info(`Trade parameters calculated successfully. Quantity: ${params.volume}, Stop Loss: ${params.stopLoss}, Take Profit: ${params.takeProfit}`);
                 log.metric('trade_cnt', ++tradeCnt);
                 const lastPrice = market.ohlc.at(-1).close;
                 try {
@@ -197,8 +193,7 @@ async function cycle() {
                     log.metric('order_cnt', ++orderCnt);
                     log.info('Order placed successfully.');
                 } catch (orderError) {
-                    log.error('Failed to place order:', orderError.message);
-                    log.debug('Full order placement error object:', orderError);
+                    log.error('Failed to place order.', orderError);
                 }
             } else {
                 log.warn('Could not calculate valid trade parameters. Skipping trade.');
@@ -207,8 +202,7 @@ async function cycle() {
             log.info(`Signal generated: ${signal.signal}, Confidence: ${signal.confidence}. No trade will be placed as signal is 'HOLD' or confidence is too low.`);
         }
     } catch (e) {
-        log.error('An unexpected error occurred during the trading cycle:', e.message);
-        log.debug('Full unexpected error object:', e);
+        log.error('An unexpected error occurred during the trading cycle.', e);
     } finally {
         log.info('--- cycle finished ---');
     }
