@@ -1,9 +1,9 @@
-// strategyEngine.js  —  only buildLast10ClosedFromRawFills keeps debug logs
+// strategyEngine.js – only buildLast10ClosedFromRawFills keeps debug logs
 import fs from 'fs';
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
 import { log } from './logger.js';
 
-const BOT_START_TIME = new Date().toISOString();   // UTC “now” when module loads
+const BOT_START_TIME = new Date().toISOString();  // UTC “now” when module loads
 
 
 const readLast10ClosedTradesFromFile = () => {
@@ -17,7 +17,7 @@ const readLast10ClosedTradesFromFile = () => {
 function buildLast10ClosedFromRawFills(rawFills, n = 10) {
   if (!Array.isArray(rawFills) || rawFills.length === 0) return [];
 
-  // 1️⃣  discard everything earlier than bot launch
+  // 1️⃣ discard everything earlier than bot launch
   const eligible = rawFills.filter(
     f => new Date(f.fillTime) >= new Date(BOT_START_TIME)
   );
@@ -29,7 +29,7 @@ function buildLast10ClosedFromRawFills(rawFills, n = 10) {
   const queue = [];
   const closed = [];
 
-  // 2️⃣  rest of FIFO logic unchanged …
+  // 2️⃣ rest of FIFO logic unchanged …
   for (const f of fills) {
     const side = f.side === 'buy' ? 'LONG' : 'SHORT';
     if (!queue.length || queue.at(-1).side === side) {
@@ -80,8 +80,8 @@ export class StrategyEngine {
         if (!text?.length) throw new Error('Empty response');
         return { ok: true, text };
       } catch (err) {
+        log.error(`API Call failed on retry ${i} of ${max}`, err);
         if (i === max) return { ok: false, error: err };
-        console.log(`Call retry ${i} of ${max}`);
         await new Promise(r => setTimeout(r, 61_000));
       }
     }
@@ -155,10 +155,19 @@ last10=${JSON.stringify(last10)}
   async generateSignal(marketData) {
     if (!marketData?.ohlc?.length) return this._fail('No OHLC');
     const prompt = this._prompt(marketData);
-    const { ok, text } = await this._callWithRetry(prompt);
+    const { ok, text, error } = await this._callWithRetry(prompt);
+    
+    if (!ok) {
+        // Log the error from the API call
+        log.error('Failed to get signal from API', error);
+        return this._fail('API Error');
+    }
+
     try {
       return JSON.parse(text.match(/\{.*\}/s)?.[0]);
     } catch {
+      // Log the parsing error to provide more detail
+      log.error(`Failed to parse response: ${text}`);
       return this._fail('Parse error');
     }
   }
