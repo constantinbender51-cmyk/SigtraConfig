@@ -42,9 +42,6 @@ export class ExecutionHandler {
                 reduceOnly: false
             });
 
-            // DEBUGGING STEP: Log the full response to see its structure on failure.
-            log.info("Received API response:", entryResponse);
-
             // Added a check to ensure entryResponse and sendstatus are defined
             if (!entryResponse || entryResponse.result !== 'success' || !entryResponse.sendstatus) {
                 log.error("❌ Failed to place entry order. API response was not successful or was malformed.", { apiResponse: entryResponse });
@@ -178,7 +175,8 @@ export class ExecutionHandler {
                 ]
             };
 
-            log.info(`Sending exit orders to API. Payload:`, { payload: batchOrderPayload });
+            // DEBUGGING STEP: Log the exact JSON payload being sent
+            log.info(`Sending exit orders to API. Payload:`, batchOrderPayload);
             const response = await this.api.batchOrder({ json: JSON.stringify(batchOrderPayload) });
 
             if (response.result === 'success') {
