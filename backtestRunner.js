@@ -7,7 +7,7 @@ import { RiskManager } from './riskManager.js';
 import { BacktestExecutionHandler } from './backtestExecutionHandler.js';
 
 /* ------------------------------------------------------------------ */
-/*  Utilities                                                         */
+/* Utilities                                                         */
 /* ------------------------------------------------------------------ */
 function tsFromDate(dateStr) {
   return Math.floor(new Date(dateStr).getTime() / 1000);
@@ -32,7 +32,7 @@ function calculateATR(ohlc, period = 14) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  BacktestRunner                                                    */
+/* BacktestRunner                                                    */
 /* ------------------------------------------------------------------ */
 export class BacktestRunner {
   constructor(cfg) {
@@ -43,7 +43,7 @@ export class BacktestRunner {
     this.risk  = new RiskManager({ leverage: 10, marginBuffer: 0.01 });
   }
 
-  async run() { 
+  async run() {
     let candles = this.data.getAllCandles();
     candles = filterByDate(candles, '2025-07-02', '2025-08-01');
     if (!candles || candles.length < this.cfg.WARMUP_PERIOD) {
@@ -65,7 +65,7 @@ export class BacktestRunner {
           break;
         }
         apiCalls++;
-        console.log(`[CANDLE ${i-this.cfg.WARMUP_PERIOD} of ${candles.length-this.cfg.WARMUP_PERIOD}]`);;
+        console.log(`[CANDLE ${i-this.cfg.WARMUP_PERIOD} of ${candles.length-this.cfg.WARMUP_PERIOD}]`);
         
         const date = new Date(candle.timestamp * 1000).toISOString();
         log.info(`[CANDLE] ${date}`);
@@ -91,11 +91,24 @@ export class BacktestRunner {
 
     if (exitPrice) {
       const date = new Date(candle.timestamp * 1000).toISOString();
+      // Log the fill event for the trade exit
+      log.info(`[FILL] Trade closed at ${exitPrice} (${exitReason}) on ${date}. P&L: $${this.exec.balance.toFixed(2)}`);
       this.exec.closeTrade(t, exitPrice, candle.timestamp);
 
       // persist updated trades
       const updated = this.exec.getTrades();
       fs.writeFileSync('./trades.json', JSON.stringify(updated, null, 2));
+
+      // Read the trades file and log its contents
+      try {
+        const fileContent = fs.readFileSync('./trades.json', 'utf8');
+        const tradesData = JSON.parse(fileContent);
+        log.info('--- CONTENTS OF trades.json AFTER CLOSING TRADE ---');
+        console.log(JSON.stringify(tradesData, null, 2));
+        log.info('--------------------------------------------------');
+      } catch (err) {
+        log.error(`Failed to read or parse trades.json: ${err.message}`);
+      }
     }
   }
 
@@ -140,6 +153,8 @@ export class BacktestRunner {
           entryTime: candle.timestamp,
           reason: sig.reason
         });
+        // Log the fill event for the trade entry
+        log.info(`[FILL] New ${sig.signal} trade opened at ${candle.close}. Size: ${params.size.toFixed(2)}`);
       }
     }
 
@@ -167,7 +182,5 @@ export class BacktestRunner {
     console.log(`Losing Trades   : ${total - wins}`);
     console.log(`Win Rate        : ${winRate.toFixed(2)}%`);
     console.log('------------------------------------\n');
-
-    fs.writeFileSync('./trades.json', JSON.stringify(trades, null, 2));
   }
 }
