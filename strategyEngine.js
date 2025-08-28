@@ -1,4 +1,4 @@
-// strategyEngine.js  —  v2 with regime filters & micro-structure refinement
+// strategyEngine.js  —  v2 with regime filters & micro-structure refinement change 3:12
 import fs from 'fs';
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
 import { log } from './logger.js';
