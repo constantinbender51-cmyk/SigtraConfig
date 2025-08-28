@@ -15,7 +15,7 @@ const PAIR = 'PF_XBTUSD';
 const OHLC_PAIR = 'XBTUSD';
 // The Kraken API supports intervals of 1, 5, 15, 30, 60, 240, 1440, etc.
 // The bot's desired interval is 3 minutes, which we will now construct.
-const INTERVAL = 3; 
+const INTERVAL = 3;
 const MIN_CONF = 40;
 const CYCLE_MS = 1_800_000;
 
@@ -123,9 +123,10 @@ async function cycle() {
             const rawMarketData = await data.fetchAllData(OHLC_PAIR, 1);
 
             // Reconstruct the OHLC data from the raw 1-minute candles, ensuring we get exactly 52 candles.
-            rawMarketData.ohlc = createThreeMinuteCandles(rawMarketData.ohlc, 52);
+            const aggregatedCandles = createThreeMinuteCandles(rawMarketData.ohlc, 52);
+            rawMarketData.ohlc = aggregatedCandles;
 
-            log.info('Market data fetched and aggregated successfully.');
+            log.info(`Market data fetched and aggregated successfully. Got ${aggregatedCandles.length} candles.`);
             market = rawMarketData;
 
         } catch (dataError) {
@@ -174,7 +175,6 @@ async function cycle() {
             log.info('Generating trading signal...');
             signal = await strat.generateSignal(market);
             log.metric('signal_cnt', ++sigCnt);
-            log.info(`Generated signal: ${signal.signal}, Confidence: ${signal.confidence}`);
         } catch (signalError) {
             log.error('Failed to generate trading signal:', signalError.message);
             log.debug('Full signal generation error object:', signalError);
@@ -182,11 +182,14 @@ async function cycle() {
         }
 
         if (signal.signal !== 'HOLD' && signal.confidence >= MIN_CONF) {
-            log.info(`Signal meets confidence threshold (${MIN_CONF}). Calculating trade parameters...`);
+            log.info(`Signal generated: ${signal.signal}, Confidence: ${signal.confidence}. Signal meets confidence threshold of ${MIN_CONF}.`);
+            
+            log.info('Calculating trade parameters...');
             const params = risk.calculateTradeParameters(market, signal);
 
             if (params) {
-                log.info('Trade parameters calculated. Attempting to place order...');
+                log.info(`Trade parameters calculated. Quantity: ${params.volume}, Stop Loss: ${params.stopLoss}, Take Profit: ${params.takeProfit}`);
+                log.info('Attempting to place order...');
                 log.metric('trade_cnt', ++tradeCnt);
                 const lastPrice = market.ohlc.at(-1).close;
                 try {
@@ -201,7 +204,7 @@ async function cycle() {
                 log.warn('Could not calculate valid trade parameters. Skipping trade.');
             }
         } else {
-            log.info(`Signal is 'HOLD' or confidence is too low (${signal.confidence} < ${MIN_CONF}). No trade will be placed.`);
+            log.info(`Signal generated: ${signal.signal}, Confidence: ${signal.confidence}. No trade will be placed as signal is 'HOLD' or confidence is too low.`);
         }
     } catch (e) {
         log.error('An unexpected error occurred during the trading cycle:', e.message);
