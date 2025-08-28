@@ -16,7 +16,7 @@ const OHLC_PAIR = 'XBTUSD';
 // The Kraken API supports intervals of 1, 5, 15, 30, 60, 240, 1440, etc.
 // The bot's desired interval is 3 minutes, which we will now construct.
 const INTERVAL = 3;
-const MIN_CONF = 40;
+const MIN_CONF = 25;
 const CYCLE_MS = 180_000;
 
 /* ---------- state ---------- */
