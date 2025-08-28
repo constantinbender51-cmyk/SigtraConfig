@@ -2,6 +2,7 @@
 import crypto from 'crypto';
 import axios from 'axios';
 import qs from 'querystring';
+import { log } from './logger.js'; // Assuming a logger is available
 
 const SPOT_OHLC_URL = 'https://api.kraken.com/0/public/OHLC';
 const BASE_URL      = 'https://demo-futures.kraken.com';
@@ -47,6 +48,16 @@ export class KrakenFuturesApi {
 
     try {
       const { data } = await axios({ method, url, headers, data: post });
+
+      // DEBUGGING STEP: Log the raw data received from the API
+      log.info(`API Response for [${method} ${endpoint}]:`, data);
+
+      // Check for a common Kraken API error format
+      if (data && data.result === 'error' && data.errors && data.errors.length > 0) {
+        const errorMessage = data.errors.map(err => `Code: ${err.code}, Message: ${err.msg}`).join(', ');
+        throw new Error(`Kraken API returned an error: ${errorMessage}`);
+      }
+
       return data;
     } catch (e) {
       const info = e.response?.data || { message: e.message };
