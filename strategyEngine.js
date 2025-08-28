@@ -17,12 +17,10 @@ const readLast10ClosedTradesFromFile = () => {
   }
 };
 
+// Updated function to read raw fills from a new fills.json file
 const readAllFillsFromFile = () => {
   try {
-    const trades = JSON.parse(fs.readFileSync('./trades.json', 'utf8'));
-    // Flatten the fills from all trades into a single array.
-    // NOTE: The `buildLast10ClosedFromRawFills` function assumes fills exist on trades.
-    return trades.flatMap(trade => trade.fills || []);
+    return JSON.parse(fs.readFileSync('./fills.json', 'utf8'));
   } catch (e) {
     console.log(`[WARN] Failed to read all fills from file: ${e.message}`);
     return [];
@@ -32,7 +30,6 @@ const readAllFillsFromFile = () => {
 function buildLast10ClosedFromRawFills(rawFills, n = 10) {
   if (!Array.isArray(rawFills) || rawFills.length === 0) return [];
 
-  // 1️⃣  discard everything earlier than bot launch
   const eligible = rawFills.filter(
     f => new Date(f.fillTime) >= new Date(BOT_START_TIME)
   );
@@ -44,7 +41,6 @@ function buildLast10ClosedFromRawFills(rawFills, n = 10) {
   const queue = [];
   const closed = [];
 
-  // 2️⃣  rest of FIFO logic unchanged …
   for (const f of fills) {
     const side = f.side === 'buy' ? 'LONG' : 'SHORT';
     if (!queue.length || queue.at(-1).side === side) {
@@ -134,26 +130,35 @@ export class StrategyEngine {
     const closes3m  = market.ohlc.map(c => c.close);
     const latest3m  = closes3m.at(-1);
 
-    /* 15-min filter */
     const closes15m = market.ohlc.filter((_, i) => i % 5 === 0).map(c => c.close);
     const sma15_20  = sma(closes15m, 20);
 
-    /* indicators */
-    const atr50_3m = atr(market.ohlc, 50);          // smoother 3-min ATR
+    const atr50_3m = atr(market.ohlc, 50);
     const mom3Pct  = ((latest3m - sma(closes3m, 20)) / sma(closes3m, 20) * 100).toFixed(2);
     const volPct   = (atr50_3m / latest3m * 100).toFixed(2);
 
-    /* 24-h intraday range % */
-    const today = market.ohlc.slice(-480); // ~24h of 3-min
-    const idr24 = ((Math.max(...today.map(c => c.high)) - Math.min(...today.map(c => c.low))) /
-                   latest3m * 100).toFixed(2);
+    const today = market.ohlc.slice(-480);
+    const idr24 = ((Math.max(...today.map(c => c.high)) - Math.min(...today.map(c => c.low))) / latest3m * 100).toFixed(2);
 
-    /* closed trades */
-    const last10 = fills.length
+    // This is the core change: use historical fills from the new fills.json file.
+    const fills = market.fills?.fills?.length > 0
+        ? market.fills.fills
+        : readAllFillsFromFile();
+
+    const last30Net = fills.slice(-30).reduce((s, f) => s + (f.side === 'buy' ? f.size : -f.size), 0);
+    const { stdev } = cvdSigma(fills, 100);
+    const zScore = stdev ? last30Net / stdev : 0;
+
+    console.log(`[INFO] Using a fills count of ${fills.length} for CVD calculation.`);
+    console.log(`[DEBUG] last30Net = ${last30Net}, stdev = ${stdev}, zScore = ${zScore.toFixed(2)}`);
+    
+    // The last10 closed trades logic remains the same, as it correctly reads from trades.json
+    const last10ClosedTrades = fills.length
       ? buildLast10ClosedFromRawFills(fills, 10)
       : readLast10ClosedTradesFromFile();
 
-    /* prompt */
+    console.log(`[DEBUG] Closed trades: ${JSON.stringify(last10ClosedTrades)}`);
+
     return `PF_XBTUSD Alpha Engine – 3-min cycle
 You are a high-frequency statistical trader operating exclusively on the PF_XBTUSD perpetual contract.
 Each 3-minute candle you emit exactly one JSON decision object.
@@ -184,6 +189,9 @@ A. 15-min momentum filter
 B. Volatility regime
  • Use 50-period ATR on 3-min for SL/TP calculation.
  • Adjust TP/SL ratio as above.
+C. Micro-structure
+ • Compute signed CVD over last 30 fills (Z-score vs 100-fill history).
+ • |Z| > 1.5 → +15 confidence for aligned direction, –15 for opposite.
 D. Trade frequency guard
  • Skip if last closed position exited < 15 min ago.
 E. Risk symmetry
@@ -200,13 +208,22 @@ Summary:
 - momentum3m=${mom3Pct}%
 - atr50_3m=${atr50_3m.toFixed(2)}
 - 24hIDR%=${idr24}%
-last10=${JSON.stringify(last10)}
+- last30CVDz=${zScore.toFixed(2)}
+last10=${JSON.stringify(last10ClosedTrades)}
 `;
   }
 
   async generateSignal(marketData) {
     if (!marketData?.ohlc?.length) return this._fail('No OHLC');
     
+    const fills = marketData.fills?.fills?.length > 0
+        ? marketData.fills.fills
+        : readAllFillsFromFile();
+
+    const last10ClosedTrades = fills.length
+      ? buildLast10ClosedFromRawFills(fills, 10)
+      : readLast10ClosedTradesFromFile();
+
     const prompt = this._prompt(marketData);
     const { ok, text, error } = await this._callWithRetry(prompt);
     if (!ok) {
@@ -225,4 +242,4 @@ last10=${JSON.stringify(last10)}
   _fail(reason) {
     return { signal: 'HOLD', confidence: 0, stop_loss_distance_in_usd: 0, take_profit_distance_in_usd: 0, reason };
   }
-      }
+}
