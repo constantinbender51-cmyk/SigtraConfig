@@ -32,7 +32,6 @@ export class BacktestRunner {
   }
 
   async run() {
-    // FIX: Changed log() to log.info()
     log.info('Starting backtest...');
     
     let candles = this.data.getAllCandles();
@@ -42,12 +41,10 @@ export class BacktestRunner {
     candles = filterByDate(candles, startDate, endDate);
     
     if (!candles || candles.length < this.cfg.WARMUP_PERIOD) {
-      // FIX: Changed log() to log.error()
       log.error('Not enough data for the warm-up period. Please check your data file and date range.');
       throw new Error('Not enough data for the warm-up period.');
     }
 
-    // FIX: Changed log() to log.info()
     log.info(`Successfully loaded ${candles.length} candles from ${startDate} to ${endDate}.`);
     log.info(`Starting simulation loop. Warm-up period: ${this.cfg.WARMUP_PERIOD} candles.`);
 
@@ -57,15 +54,17 @@ export class BacktestRunner {
       const candle = candles[i];
       const window = candles.slice(i - this.cfg.DATA_WINDOW_SIZE, i);
 
+      // FIX: Added the current candle's timestamp to the log messages for better tracking
+      const candleTime = new Date(candle.timestamp * 1000).toISOString();
+
       // Check for an open trade and try to exit
       if (this.exec.getOpenTrade()) {
-        this._checkExit(candle);
+        this._checkExit(candle, candleTime);
       }
 
       // Check if a new signal should be generated
       if (!this.exec.getOpenTrade()) {
         if (apiCalls >= this.cfg.MAX_API_CALLS) {
-          // FIX: Changed log() to log.warn()
           log.warn(`Maximum API calls (${this.cfg.MAX_API_CALLS}) reached. Backtest stopping early.`);
           break;
         }
@@ -78,7 +77,7 @@ export class BacktestRunner {
   }
 
   /* ------------------------ Private ------------------------ */
-  _checkExit(candle) {
+  _checkExit(candle, candleTime) {
     const t = this.exec.getOpenTrade();
     let exitPrice  = null;
     let exitReason = '';
@@ -92,8 +91,8 @@ export class BacktestRunner {
     }
 
     if (exitPrice) {
-      // FIX: Changed log() to log.info()
-      log.info(`[TRADE CLOSED] Signal: ${t.signal}, Entry: ${t.entryPrice.toFixed(2)}, Exit: ${exitPrice.toFixed(2)}, Reason: ${exitReason}`);
+      // FIX: Added candleTime to the log message
+      log.info(`[${candleTime}] [TRADE CLOSED] Signal: ${t.signal}, Entry: ${t.entryPrice.toFixed(2)}, Exit: ${exitPrice.toFixed(2)}, Reason: ${exitReason}`);
       this.exec.closeTrade(t, exitPrice, candle.timestamp);
       const updated = this.exec.getTrades();
       fs.writeFileSync('./trades.json', JSON.stringify(updated, null, 2));
@@ -116,14 +115,15 @@ export class BacktestRunner {
   }
 
   async _handleSignal(market, candle, apiCalls) {
-    // FIX: Changed log() to log.debug()
-    log.info(`[API Call ${apiCalls}] Requesting signal...`);
+    // FIX: Added candleTime to the log message
+    const candleTime = new Date(candle.timestamp * 1000).toISOString();
+    log.info(`[${candleTime}] [API Call ${apiCalls}] Requesting signal...`);
     const t0 = Date.now();
     const sig = await this.strat.generateSignal(market);
 
     if (sig.signal !== 'HOLD' && sig.confidence >= this.cfg.MINIMUM_CONFIDENCE_THRESHOLD) {
-      // FIX: Changed log() to log.info()
-      log.info(`[SIGNAL GENERATED] Signal: ${sig.signal}, Confidence: ${sig.confidence.toFixed(2)}, Reason: ${sig.reason}`);
+      // FIX: Added candleTime to the log message
+      log.info(`[${candleTime}] [SIGNAL GENERATED] Signal: ${sig.signal}, Confidence: ${sig.confidence.toFixed(2)}, Reason: ${sig.reason}`);
       const params = this.risk.calculateTradeParameters(
         { ...market, balance: this.exec.balance },
         sig
@@ -136,28 +136,27 @@ export class BacktestRunner {
           entryTime: candle.timestamp,
           reason: sig.reason
         });
-        // FIX: Changed log() to log.info()
-        log.info(`[TRADE PLACED] Signal: ${sig.signal}, Entry Price: ${candle.close.toFixed(2)}, Stop-Loss: ${params.stopLoss.toFixed(2)}, Take-Profit: ${params.takeProfit.toFixed(2)}`);
+        // FIX: Added candleTime to the log message
+        log.info(`[${candleTime}] [TRADE PLACED] Signal: ${sig.signal}, Entry Price: ${candle.close.toFixed(2)}, Stop-Loss: ${params.stopLoss.toFixed(2)}, Take-Profit: ${params.takeProfit.toFixed(2)}`);
       } else {
-        // FIX: Changed log() to log.warn()
-        log.warn(`[TRADE BLOCKED] Signal: ${sig.signal}, but calculated size was too small.`);
+        // FIX: Added candleTime to the log message
+        log.warn(`[${candleTime}] [TRADE BLOCKED] Signal: ${sig.signal}, but calculated size was too small.`);
       }
     } else {
-      // FIX: Changed log() to log.debug()
-      log.info(`[SIGNAL REJECTED] Signal: ${sig.signal}, Confidence: ${sig.confidence.toFixed(2)} (below threshold of ${this.cfg.MINIMUM_CONFIDENCE_THRESHOLD})`);
+      // FIX: Added candleTime to the log message
+      log.info(`[${candleTime}] [SIGNAL REJECTED] Signal: ${sig.signal}, Confidence: ${sig.confidence.toFixed(2)} (below threshold of ${this.cfg.MINIMUM_CONFIDENCE_THRESHOLD})`);
     }
 
     const elapsed = Date.now() - t0;
     const delay   = this.cfg.MIN_SECONDS_BETWEEN_CALLS * 1000 - elapsed;
     if (delay > 0) {
-      // FIX: Changed log() to log.debug()
-      log.info(`Delaying for ${delay}ms to respect API call frequency.`);
+      // FIX: Added candleTime to the log message
+      log.info(`[${candleTime}] Delaying for ${delay}ms to respect API call frequency.`);
       await new Promise(r => setTimeout(r, delay));
     }
   }
 
   _printSummary(apiCalls) {
-    // FIX: Changed log() to log.info()
     log.info('Backtest finished.');
     const trades = this.exec.getTrades();
     const totalTrades = trades.length;
@@ -165,7 +164,6 @@ export class BacktestRunner {
     const losingTrades = totalTrades - winningTrades;
     const totalPnl = trades.reduce((sum, t) => sum + t.pnl, 0);
 
-    // FIX: Changed log() to log.info()
     log.info(`--- Backtest Summary ---`);
     log.info(`Initial Balance: $${this.cfg.INITIAL_BALANCE.toFixed(2)}`);
     log.info(`Final Balance:   $${this.exec.balance.toFixed(2)}`);
