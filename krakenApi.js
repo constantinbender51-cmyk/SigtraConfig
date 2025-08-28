@@ -49,7 +49,7 @@ export class KrakenFuturesApi {
     try {
       const { data } = await axios({ method, url, headers, data: post });
 
-      // DEBUGGING STEP: Log the raw data received from the API
+      // DEBUGGING STEP 1: Log the raw data received from the API on success
       log.info(`API Response for [${method} ${endpoint}]:`, data);
 
       // Check for a common Kraken API error format
@@ -60,7 +60,9 @@ export class KrakenFuturesApi {
 
       return data;
     } catch (e) {
+      // DEBUGGING STEP 2: Log the response data from the error object if it exists
       const info = e.response?.data || { message: e.message };
+      log.error(`Axios Error Response for [${method} ${endpoint}]:`, info);
       throw new Error(`[${method} ${endpoint}] ${JSON.stringify(info)}`);
     }
   }
