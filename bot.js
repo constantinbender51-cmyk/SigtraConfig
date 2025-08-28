@@ -1,4 +1,4 @@
-// bot.js – enhanced with robust error handling, logging, and trade history
+// bot.js – enhanced with robust error handling and logging
 import dotenv from 'dotenv';
 import { startWebServer } from './webServer.js';
 import { DataHandler } from './dataHandler.js';
@@ -6,13 +6,8 @@ import { StrategyEngine } from './strategyEngine.js';
 import { RiskManager } from './riskManager.js';
 import { ExecutionHandler } from './executionHandler.js';
 import { log } from './logger.js';
-import fs from 'fs';
-import path from 'path';
 
-// Load environment variables
 dotenv.config();
-
-// Start the web server
 startWebServer();
 
 /* ---------- constants ---------- */
@@ -21,24 +16,21 @@ const OHLC_PAIR = 'XBTUSD';
 // The Kraken API supports intervals of 1, 5, 15, 30, 60, 240, 1440, etc.
 // The bot's desired interval is 3 minutes, which we will now construct.
 const INTERVAL = 3;
-const MIN_CONF = 25;
+const MIN_CONF = 40;
 const CYCLE_MS = 180000;
-const TRADES_LOG_FILE = path.join(process.cwd(), 'logs', 'trades.ndjson');
 
 /* ---------- state ---------- */
 let sigCnt = 0;
 let tradeCnt = 0;
 let orderCnt = 0;
-// Track whether exit orders (stop loss/take profit) have been placed for the current position
-let exitOrdersPlaced = false;
 
-let firstBalance = null;      // balance when first flat
-let lastBalance = null;       // balance on last flat cycle
+let firstBalance = null;     // balance when first flat
+let lastBalance = null;      // balance on last flat cycle
 let curBalance = null;
 
-const returns = [];           // daily % returns
-const pnls = [];              // closed-trade PnLs
-const equity = [];            // balance history for DD
+const returns = [];          // daily % returns
+const pnls = [];             // closed-trade PnLs
+const equity = [];           // balance history for DD
 
 /* ---------- helpers ---------- */
 
@@ -83,21 +75,6 @@ const createThreeMinuteCandles = (candles, desiredCount) => {
         threeMinCandles.push(newCandle);
     }
     return threeMinCandles;
-};
-
-/**
- * Logs a new trade to the trades log file.
- * We'll use this to persist the trade data for the new web page.
- * @param {object} tradeData - The data for the completed trade.
- */
-const logTrade = (tradeData) => {
-    try {
-        const tradeRecord = JSON.stringify(tradeData);
-        fs.appendFileSync(TRADES_LOG_FILE, tradeRecord + '\n');
-        log.info('Trade successfully logged to file.');
-    } catch (err) {
-        log.error('Failed to log trade to file.', err);
-    }
 };
 
 const annualise = (arr) => {
@@ -172,65 +149,26 @@ async function cycle() {
             log.info(`Daily return recorded. Returns array length: ${returns.length}`);
         }
 
-        const openPositions = market.positions?.openPositions?.filter(p => p.symbol === PAIR) || [];
-        // Check if there are any open orders related to our trading pair that might be pending.
-        const openOrders = market.openOrders?.openOrders?.filter(o => o.symbol === PAIR) || [];
+        const open = market.positions?.openPositions?.filter(p => p.symbol === PAIR) || [];
 
-        // Condition 1: Position was just closed.
-        if (!openPositions.length && lastBalance !== null) {
+        if (!open.length && lastBalance !== null) {
             const pnl = curBalance - firstBalance;
             pnls.push(pnl);
             log.info(`Position closed. Realized PnL: ${pnl} USD`);
-
-            // --- NEW: Log the closed trade to file ---
-            // Note: In a real-world scenario, you would have more detailed trade data
-            // such as entry/exit price and side (long/short). For this example,
-            // we'll log what we have available.
-            const tradeData = {
-                timestamp: new Date().toISOString(),
-                pnl: pnl,
-                tradeId: `trade_${pnls.length}`
-            };
-            logTrade(tradeData);
-            // ----------------------------------------
-
             recordStats();
-            lastBalance = curBalance;
-            // Reset the flag for exit orders when the position is closed.
-            exitOrdersPlaced = false;
+            lastBalance = curBalance; 
         }
 
-        if (firstBalance === null && !openPositions.length) {
+        if (firstBalance === null && !open.length) {
             firstBalance = lastBalance = curBalance;
             log.metric('initial_balance', firstBalance, 'USD');
         }
 
-        // Condition 2: A position is open. We need to manage exits.
-        if (openPositions.length) {
-            log.info(`Position open; checking for stop-loss and take-profit orders.`);
-            // If the position exists, but exit orders haven't been placed yet, place them now.
-            // This handles partial fills from the previous cycle.
-            if (!exitOrdersPlaced) {
-                 const params = risk.calculateTradeParameters(market, { signal: openPositions[0].side });
-                 // Ensure we have valid params before trying to place orders
-                 if (params) {
-                    await exec.placeExitOrders({
-                        pair: PAIR,
-                        params,
-                        filledSize: openPositions[0].size,
-                    });
-                    exitOrdersPlaced = true;
-                    log.metric('order_cnt', ++orderCnt);
-                 } else {
-                     log.warn("Could not calculate valid exit parameters. Skipping exit order placement.");
-                 }
-            } else {
-                log.info('Exit orders are already in place for the current position.');
-            }
+        if (open.length) {
+            log.info('Position open; skipping trading logic.');
             return;
         }
 
-        // Condition 3: No position is open. Look for a new signal to enter.
         let signal;
         try {
             log.info('Generating trading signal...');
@@ -243,20 +181,19 @@ async function cycle() {
 
         if (signal.signal !== 'HOLD' && signal.confidence >= MIN_CONF) {
             log.info(`Signal generated: ${signal.signal}, Confidence: ${signal.confidence}. Signal meets confidence threshold of ${MIN_CONF}.`);
-
+            
             const params = risk.calculateTradeParameters(market, signal);
 
             if (params) {
-                log.info(`Trade parameters calculated successfully. Quantity: ${params.volume}`);
+                log.info(`Trade parameters calculated successfully. Quantity: ${params.volume}, Stop Loss: ${params.stopLoss}, Take Profit: ${params.takeProfit}`);
                 log.metric('trade_cnt', ++tradeCnt);
                 const lastPrice = market.ohlc.at(-1).close;
                 try {
-                    // Refactored: We now only place the entry order. Exits are handled in the next cycle.
-                    await exec.placeEntryOrder({ signal: signal.signal, pair: PAIR, params, lastPrice });
-                    // No need to set exitOrdersPlaced to true here, as exits are not yet placed.
-                    log.info('Entry order placed successfully. Awaiting fills...');
+                    await exec.placeOrder({ signal: signal.signal, pair: PAIR, params, lastPrice });
+                    log.metric('order_cnt', ++orderCnt);
+                    log.info('Order placed successfully.');
                 } catch (orderError) {
-                    log.error('Failed to place entry order.', orderError);
+                    log.error('Failed to place order.', orderError);
                 }
             } else {
                 log.warn('Could not calculate valid trade parameters. Skipping trade.');
@@ -283,4 +220,3 @@ process.on('SIGINT', () => {
     log.warn('SIGINT received – shutting down');
     process.exit(0);
 });
-
