@@ -1,4 +1,4 @@
-// strategyEngine.js  —  v2 with regime filters & micro-structure refinement change 3:12
+// strategyEngine.js  —  v2 with regime filters & micro-structure refinement change 4'14
 import fs from 'fs';
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
 import { log } from './logger.js';
@@ -15,12 +15,19 @@ const readLast10ClosedTradesFromFile = () => {
 };
 
 function buildLast10ClosedFromRawFills(rawFills, n = 10) {
-  if (!Array.isArray(rawFills) || rawFills.length === 0) return [];
+  // 🐛 DEBUG LOG: Log the raw fills array received by this function
+  console.log('[DEBUG-FIFO] START - Raw fills input:', rawFills?.length);
+
+  if (!Array.isArray(rawFills) || rawFills.length === 0) {
+    console.log('[DEBUG-FIFO] No raw fills, returning empty array.');
+    return [];
+  }
 
   // 1️⃣  discard everything earlier than bot launch
   const eligible = rawFills.filter(
     f => new Date(f.fillTime) >= new Date(BOT_START_TIME)
   );
+  console.log('[DEBUG-FIFO] Fills after BOT_START_TIME filter:', eligible.length); // ⬅️ NEW LOG
   console.log('[FIFO-DEBUG] after start-time filter =', eligible.length);
 
   if (eligible.length === 0) return [];
@@ -60,9 +67,6 @@ function buildLast10ClosedFromRawFills(rawFills, n = 10) {
       queue.push({ side, entryTime: f.fillTime, entryPrice: f.price, size: remaining });
     }
   }
-
-  const last10 = closed.slice(-n).reverse();
-  return last10;
 }
 /* ---------- enhanced indicator helpers ---------- */
 const sma = (arr, len) => arr.slice(-len).reduce((a, b) => a + b, 0) / len;
@@ -79,6 +83,8 @@ const atr = (ohlc, len) => {
 };
 
 const cvdSigma = (fills, lookback = 100) => {
+  // 🐛 DEBUG LOG: Log the fills array received by this function
+  console.log('[DEBUG-CVD] START - Fills input:', fills?.length);
   if (!fills?.length) {
     console.log('[DEBUG-CVD] No fills array, returning default.'); // ⬅️ NEW LOG
     return { mean: 0, stdev: 1 };
@@ -120,6 +126,10 @@ export class StrategyEngine {
   }
 
   _prompt(market) {
+    // 🐛 DEBUG LOG: Log the entire market object received by the prompt function.
+    // This is the source data for all subsequent calculations.
+    console.log('[DEBUG] START _prompt - Input market object:', market);
+
     const closes3m  = market.ohlc.map(c => c.close);
     const latest3m  = closes3m.at(-1);
 
@@ -225,4 +235,4 @@ last10=${JSON.stringify(last10)}
   _fail(reason) {
     return { signal: 'HOLD', confidence: 0, stop_loss_distance_in_usd: 0, take_profit_distance_in_usd: 0, reason };
   }
-}
+}//
