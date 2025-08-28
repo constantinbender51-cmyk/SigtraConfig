@@ -44,14 +44,15 @@ export class KrakenFuturesApi {
     };
     if (method === 'POST') {
       headers['Content-Type'] = 'application/x-www-form-urlencoded';
-      // DEBUGGING STEP: Log the exact POST payload being sent
-      log.info(`Payload for [${method} ${endpoint}]:`, post);
     }
 
     const url = this.baseUrl + endpoint + query;
 
     try {
       const { data } = await axios({ method, url, headers, data: post });
+
+      // DEBUGGING STEP: Log the raw response from the API
+      log.info(`API Response for [${method} ${endpoint}]:`, data);
 
       // Check for a common Kraken API error format
       if (data && data.result === 'error' && data.errors && data.errors.length > 0) {
@@ -61,7 +62,9 @@ export class KrakenFuturesApi {
 
       return data;
     } catch (e) {
+      // DEBUGGING STEP: Log the response data from the error object if it exists
       const info = e.response?.data || { message: e.message };
+      log.error(`Axios Error Response for [${method} ${endpoint}]:`, info);
       throw new Error(`[${method} ${endpoint}] ${JSON.stringify(info)}`);
     }
   }
