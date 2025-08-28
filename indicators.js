@@ -21,7 +21,7 @@ export function calculateIndicatorSeries(ohlcData) {
         ema_200_series: EMA.calculate({ period: 200, values: close }),
         rsi_14_series: RSI.calculate({ period: 14, values: close }),
         macd_histogram_series: MACD.calculate({ values: close, fastPeriod: 12, slowPeriod: 26, signalPeriod: 9, SimpleMAOscillator: false, SimpleMASignal: false }).map(m => m.histogram),
-        atr_50_series: ATR.calculate({ high, low, close, period: 50 })
+        atr_20_series: ATR.calculate({ high, low, close, period: 20 })
     };
 
     log.info(`[INDICATORS] Calculated full indicator series.`);
