@@ -49,7 +49,6 @@ export class BacktestRunner {
     if (!candles || candles.length < this.cfg.WARMUP_PERIOD) {
       throw new Error('Not enough data for the warm-up period.');
     }
-    console.log(`Backtesting ${candles.length} candles`);
 
     let apiCalls = 0;
 
@@ -61,14 +60,9 @@ export class BacktestRunner {
 
       if (!this.exec.getOpenTrade()) { // && this._hasSignal({ ohlc: window })) {
         if (apiCalls >= this.cfg.MAX_API_CALLS) {
-          log.info('[BACKTEST] Reached the API call limit. Ending simulation.');
           break;
         }
         apiCalls++;
-        console.log(`[CANDLE ${i-this.cfg.WARMUP_PERIOD} of ${candles.length-this.cfg.WARMUP_PERIOD}]`);
-        
-        const date = new Date(candle.timestamp * 1000).toISOString();
-        log.info(`[CANDLE] ${date}`);
         await this._handleSignal({ ohlc: window }, candle, apiCalls);
       }
     }
@@ -90,56 +84,29 @@ export class BacktestRunner {
     }
 
     if (exitPrice) {
-      const date = new Date(candle.timestamp * 1000).toISOString();
-      // Log the fill event for the trade exit
-      log.info(`[FILL] Trade closed at ${exitPrice} (${exitReason}) on ${date}. P&L: $${this.exec.balance.toFixed(2)}`);
       this.exec.closeTrade(t, exitPrice, candle.timestamp);
-
-      // persist updated trades
       const updated = this.exec.getTrades();
       fs.writeFileSync('./trades.json', JSON.stringify(updated, null, 2));
-
-      // Read the trades file and log its contents
-      try {
-        const fileContent = fs.readFileSync('./trades.json', 'utf8');
-        const tradesData = JSON.parse(fileContent);
-        log.info('--- CONTENTS OF trades.json AFTER CLOSING TRADE ---');
-        console.log(JSON.stringify(tradesData, null, 2));
-        log.info('--------------------------------------------------');
-      } catch (err) {
-        log.error(`Failed to read or parse trades.json: ${err.message}`);
-      }
     }
   }
 
   _hasSignal(market) {
     const PERIOD = 21;
     if (market.ohlc.length < PERIOD + 1) return false;
-
     const cur   = market.ohlc[market.ohlc.length - 1];
     const prev  = market.ohlc.slice(-PERIOD - 1, -1);
-
     const hh  = Math.max(...prev.map(c => c.high));
     const ll  = Math.min(...prev.map(c => c.low));
     const mid = (hh + ll) / 2;
-
     const buffer  = cur.close * 0.0015;
     const bullish = cur.high > mid + buffer;
     const bearish = cur.low  < mid - buffer;
-
-    if (bullish || bearish) {
-      const dir  = bullish ? 'Bullish' : 'Bearish';
-      const date = new Date(cur.timestamp * 1000).toISOString();
-    }
     return true;// bullish || bearish;
   }
 
   async _handleSignal(market, candle, apiCalls) {
-    log.info(`[BACKTEST] [Call #${apiCalls}/${this.cfg.MAX_API_CALLS}]`);
     const t0 = Date.now();
-
     const sig = await this.strat.generateSignal(market);
-    console.log(sig);
     if (sig.signal !== 'HOLD' && sig.confidence >= this.cfg.MINIMUM_CONFIDENCE_THRESHOLD) {
       const params = this.risk.calculateTradeParameters(
         { ...market, balance: this.exec.balance },
@@ -153,34 +120,15 @@ export class BacktestRunner {
           entryTime: candle.timestamp,
           reason: sig.reason
         });
-        // Log the fill event for the trade entry
-        log.info(`[FILL] New ${sig.signal} trade opened at ${candle.close}. Size: ${params.size.toFixed(2)}`);
       }
     }
-
     const elapsed = Date.now() - t0;
     const delay   = this.cfg.MIN_SECONDS_BETWEEN_CALLS * 1000 - elapsed;
-    console.log(`WAITING ${delay/1000}s...`);
     if (delay > 0) await new Promise(r => setTimeout(r, delay));
   }
 
   _printSummary(apiCalls) {
-    log.info('--- BACKTEST COMPLETE ---');
     const trades   = this.exec.getTrades();
-    const closed   = trades.filter(t => t.exitTime);
-    const total    = trades.length;
-    const wins     = trades.filter(t => t.pnl > 0).length;
-    const winRate  = total ? (wins / total) * 100 : 0;
-    const pnl      = this.exec.balance - this.cfg.INITIAL_BALANCE;
-
-    console.log(`Analyzed crossover events: ${apiCalls}`);
-    console.log(`Initial Balance : $${this.cfg.INITIAL_BALANCE.toFixed(2)}`);
-    console.log(`Final Balance   : $${this.exec.balance.toFixed(2)}`);
-    console.log(`Total P&L       : $${pnl.toFixed(2)}`);
-    console.log(`Total Trades    : ${total}`);
-    console.log(`Winning Trades  : ${wins}`);
-    console.log(`Losing Trades   : ${total - wins}`);
-    console.log(`Win Rate        : ${winRate.toFixed(2)}%`);
-    console.log('------------------------------------\n');
+    fs.writeFileSync('./trades.json', JSON.stringify(trades, null, 2));
   }
 }
