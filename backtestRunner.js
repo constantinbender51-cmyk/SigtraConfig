@@ -1,4 +1,4 @@
-// backtestRunner.js  –  cleaned, no AI post-backtest analysis
+// backtestRunner.js  –  cleaned, no AI post-backtest analysis change 4:12
 import fs from 'fs';
 import { log } from './logger.js';
 import { BacktestDataHandler } from './backtestDataHandler.js';
@@ -7,7 +7,7 @@ import { RiskManager } from './riskManager.js';
 import { BacktestExecutionHandler } from './backtestExecutionHandler.js';
 
 /* ------------------------------------------------------------------ */
-/*  Utilities                                                         */
+/* Utilities                                                         */
 /* ------------------------------------------------------------------ */
 function tsFromDate(dateStr) {
   return Math.floor(new Date(dateStr).getTime() / 1000);
@@ -32,7 +32,7 @@ function calculateATR(ohlc, period = 14) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  BacktestRunner                                                    */
+/* BacktestRunner                                                    */
 /* ------------------------------------------------------------------ */
 export class BacktestRunner {
   constructor(cfg) {
@@ -69,7 +69,9 @@ export class BacktestRunner {
         
         const date = new Date(candle.timestamp * 1000).toISOString();
         log.info(`[CANDLE] ${date}`);
-        await this._handleSignal({ ohlc: window }, candle, apiCalls);
+        // 🐛 FIX: Passing the fills data to the strategy engine.
+        // It was missing from the market object previously.
+        await this._handleSignal({ ohlc: window, fills: this.data.getAllFills() }, candle, apiCalls);
       }
     }
     this._printSummary(apiCalls);
@@ -124,6 +126,9 @@ export class BacktestRunner {
   async _handleSignal(market, candle, apiCalls) {
     log.info(`[BACKTEST] [Call #${apiCalls}/${this.cfg.MAX_API_CALLS}]`);
     const t0 = Date.now();
+
+    // 🐛 DEBUG LOG: Log the market data object right before sending it to the strategy engine.
+    console.log('[DEBUG-BACKTESTER] Market data being sent to strategy:', market.ohlc.length, market.fills?.length);
 
     const sig = await this.strat.generateSignal(market);
     console.log(sig);
