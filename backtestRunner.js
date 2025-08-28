@@ -32,7 +32,8 @@ export class BacktestRunner {
   }
 
   async run() {
-    log('INFO', 'Starting backtest...');
+    // FIX: Changed log() to log.info()
+    log.info('Starting backtest...');
     
     let candles = this.data.getAllCandles();
     
@@ -41,12 +42,14 @@ export class BacktestRunner {
     candles = filterByDate(candles, startDate, endDate);
     
     if (!candles || candles.length < this.cfg.WARMUP_PERIOD) {
-      log('ERROR', 'Not enough data for the warm-up period. Please check your data file and date range.');
+      // FIX: Changed log() to log.error()
+      log.error('Not enough data for the warm-up period. Please check your data file and date range.');
       throw new Error('Not enough data for the warm-up period.');
     }
 
-    log('INFO', `Successfully loaded ${candles.length} candles from ${startDate} to ${endDate}.`);
-    log('INFO', `Starting simulation loop. Warm-up period: ${this.cfg.WARMUP_PERIOD} candles.`);
+    // FIX: Changed log() to log.info()
+    log.info(`Successfully loaded ${candles.length} candles from ${startDate} to ${endDate}.`);
+    log.info(`Starting simulation loop. Warm-up period: ${this.cfg.WARMUP_PERIOD} candles.`);
 
     let apiCalls = 0;
 
@@ -62,7 +65,8 @@ export class BacktestRunner {
       // Check if a new signal should be generated
       if (!this.exec.getOpenTrade()) {
         if (apiCalls >= this.cfg.MAX_API_CALLS) {
-          log('WARNING', `Maximum API calls (${this.cfg.MAX_API_CALLS}) reached. Backtest stopping early.`);
+          // FIX: Changed log() to log.warn()
+          log.warn(`Maximum API calls (${this.cfg.MAX_API_CALLS}) reached. Backtest stopping early.`);
           break;
         }
         apiCalls++;
@@ -88,7 +92,8 @@ export class BacktestRunner {
     }
 
     if (exitPrice) {
-      log('INFO', `[TRADE CLOSED] Signal: ${t.signal}, Entry: ${t.entryPrice.toFixed(2)}, Exit: ${exitPrice.toFixed(2)}, Reason: ${exitReason}`);
+      // FIX: Changed log() to log.info()
+      log.info(`[TRADE CLOSED] Signal: ${t.signal}, Entry: ${t.entryPrice.toFixed(2)}, Exit: ${exitPrice.toFixed(2)}, Reason: ${exitReason}`);
       this.exec.closeTrade(t, exitPrice, candle.timestamp);
       const updated = this.exec.getTrades();
       fs.writeFileSync('./trades.json', JSON.stringify(updated, null, 2));
@@ -111,12 +116,14 @@ export class BacktestRunner {
   }
 
   async _handleSignal(market, candle, apiCalls) {
-    log('DEBUG', `[API Call ${apiCalls}] Requesting signal...`);
+    // FIX: Changed log() to log.debug()
+    log.info(`[API Call ${apiCalls}] Requesting signal...`);
     const t0 = Date.now();
     const sig = await this.strat.generateSignal(market);
 
     if (sig.signal !== 'HOLD' && sig.confidence >= this.cfg.MINIMUM_CONFIDENCE_THRESHOLD) {
-      log('INFO', `[SIGNAL GENERATED] Signal: ${sig.signal}, Confidence: ${sig.confidence.toFixed(2)}, Reason: ${sig.reason}`);
+      // FIX: Changed log() to log.info()
+      log.info(`[SIGNAL GENERATED] Signal: ${sig.signal}, Confidence: ${sig.confidence.toFixed(2)}, Reason: ${sig.reason}`);
       const params = this.risk.calculateTradeParameters(
         { ...market, balance: this.exec.balance },
         sig
@@ -129,39 +136,45 @@ export class BacktestRunner {
           entryTime: candle.timestamp,
           reason: sig.reason
         });
-        log('INFO', `[TRADE PLACED] Signal: ${sig.signal}, Entry Price: ${candle.close.toFixed(2)}, Stop-Loss: ${params.stopLoss.toFixed(2)}, Take-Profit: ${params.takeProfit.toFixed(2)}`);
+        // FIX: Changed log() to log.info()
+        log.info(`[TRADE PLACED] Signal: ${sig.signal}, Entry Price: ${candle.close.toFixed(2)}, Stop-Loss: ${params.stopLoss.toFixed(2)}, Take-Profit: ${params.takeProfit.toFixed(2)}`);
       } else {
-        log('WARNING', `[TRADE BLOCKED] Signal: ${sig.signal}, but calculated size was too small.`);
+        // FIX: Changed log() to log.warn()
+        log.warn(`[TRADE BLOCKED] Signal: ${sig.signal}, but calculated size was too small.`);
       }
     } else {
-      log('DEBUG', `[SIGNAL REJECTED] Signal: ${sig.signal}, Confidence: ${sig.confidence.toFixed(2)} (below threshold of ${this.cfg.MINIMUM_CONFIDENCE_THRESHOLD})`);
+      // FIX: Changed log() to log.debug()
+      log.info(`[SIGNAL REJECTED] Signal: ${sig.signal}, Confidence: ${sig.confidence.toFixed(2)} (below threshold of ${this.cfg.MINIMUM_CONFIDENCE_THRESHOLD})`);
     }
 
     const elapsed = Date.now() - t0;
     const delay   = this.cfg.MIN_SECONDS_BETWEEN_CALLS * 1000 - elapsed;
     if (delay > 0) {
-      log('DEBUG', `Delaying for ${delay}ms to respect API call frequency.`);
+      // FIX: Changed log() to log.debug()
+      log.info(`Delaying for ${delay}ms to respect API call frequency.`);
       await new Promise(r => setTimeout(r, delay));
     }
   }
 
   _printSummary(apiCalls) {
-    log('INFO', 'Backtest finished.');
+    // FIX: Changed log() to log.info()
+    log.info('Backtest finished.');
     const trades = this.exec.getTrades();
     const totalTrades = trades.length;
     const winningTrades = trades.filter(t => t.pnl > 0).length;
     const losingTrades = totalTrades - winningTrades;
     const totalPnl = trades.reduce((sum, t) => sum + t.pnl, 0);
 
-    log('INFO', `--- Backtest Summary ---`);
-    log('INFO', `Initial Balance: $${this.cfg.INITIAL_BALANCE.toFixed(2)}`);
-    log('INFO', `Final Balance:   $${this.exec.balance.toFixed(2)}`);
-    log('INFO', `Total P/L:       $${totalPnl.toFixed(2)}`);
-    log('INFO', `Trades Executed: ${totalTrades}`);
-    log('INFO', `Winning Trades:  ${winningTrades}`);
-    log('INFO', `Losing Trades:   ${losingTrades}`);
-    log('INFO', `API Calls Made:  ${apiCalls}`);
-    log('INFO', `-------------------------`);
+    // FIX: Changed log() to log.info()
+    log.info(`--- Backtest Summary ---`);
+    log.info(`Initial Balance: $${this.cfg.INITIAL_BALANCE.toFixed(2)}`);
+    log.info(`Final Balance:   $${this.exec.balance.toFixed(2)}`);
+    log.info(`Total P/L:       $${totalPnl.toFixed(2)}`);
+    log.info(`Trades Executed: ${totalTrades}`);
+    log.info(`Winning Trades:  ${winningTrades}`);
+    log.info(`Losing Trades:   ${losingTrades}`);
+    log.info(`API Calls Made:  ${apiCalls}`);
+    log.info(`-------------------------`);
 
     fs.writeFileSync('./trades.json', JSON.stringify(trades, null, 2));
   }
