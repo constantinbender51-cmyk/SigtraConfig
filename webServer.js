@@ -6,8 +6,7 @@ import { log } from './logger.js';
 
 const PORT = process.env.PORT || 3000;
 const metricsFile = path.join(process.cwd(), 'logs', 'metrics.ndjson');
-const humanLog = path.join(process.cwd(), 'logs', 'trading-bot.log');
-const tradesLogFile = path.join(process.cwd(), 'logs', 'trades.ndjson');
+const humanLog    = path.join(process.cwd(), 'logs', 'trading-bot.log');
 
 // ----------------------------------------
 // Shared CSS (white & sleek)
@@ -59,20 +58,6 @@ function getLatestMetrics() {
   return latest;
 }
 
-// --- NEW: Helper to get all trades from the log file ---
-function getTrades() {
-    let trades = [];
-    if (fs.existsSync(tradesLogFile)) {
-        trades = fs.readFileSync(tradesLogFile, 'utf8')
-            .split('\n')
-            .filter(Boolean)
-            .map(JSON.parse);
-    }
-    // Reverse the array to show most recent trades first
-    return trades.reverse();
-}
-// -------------------------------------------------------
-
 // ----------------------------------------
 // Express setup
 // ----------------------------------------
@@ -103,7 +88,6 @@ export function startWebServer() {
         <h1>Essentials</h1>
         <a class="btn" href="/deep">🔍 Deep Dive</a>
         <a class="btn" href="/logs">📄 Raw Logs</a>
-        <a class="btn" href="/trades">📈 Trades</a>
         <table>
           <tr><th>Metric</th><th>Value</th></tr>
           ${rows}
@@ -135,7 +119,6 @@ export function startWebServer() {
         <h1>Deep Dive – All Metrics</h1>
         <a class="btn" href="/">📊 Essentials</a>
         <a class="btn" href="/logs">📄 Raw Logs</a>
-        <a class="btn" href="/trades">📈 Trades</a>
         <table>
           <tr><th>Metric</th><th>Value</th></tr>
           ${rows}
@@ -163,7 +146,6 @@ export function startWebServer() {
           <h1>Trading Bot Logs</h1>
           <a class="btn" href="/">📊 Essentials</a>
           <a class="btn" href="/deep">🔍 Deep Dive</a>
-          <a class="btn" href="/trades">📈 Trades</a>
           <pre>${data.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>
         </body>
         </html>`;
@@ -171,50 +153,7 @@ export function startWebServer() {
     });
   });
 
-  // ---------- NEW: TRADES TAB ----------
-  app.get('/trades', (req, res) => {
-      const trades = getTrades();
-      const tradeRows = trades.map(trade => {
-          const pnlColor = trade.pnl >= 0 ? 'green' : 'red';
-          const pnlSign = trade.pnl >= 0 ? '+' : '';
-          return `<tr>
-                      <td>${trade.timestamp}</td>
-                      <td>${trade.tradeId}</td>
-                      <td style="color:${pnlColor};">${pnlSign}${trade.pnl.toFixed(2)} USD</td>
-                  </tr>`;
-      }).join('');
-
-      const html = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8"/>
-        <title>Trade History</title>
-        <meta http-equiv="refresh" content="30">
-        <style>${css}</style>
-      </head>
-      <body>
-        <h1>Trade History</h1>
-        <a class="btn" href="/">📊 Essentials</a>
-        <a class="btn" href="/deep">🔍 Deep Dive</a>
-        <a class="btn" href="/logs">📄 Raw Logs</a>
-        <table>
-            <tr>
-                <th>Timestamp</th>
-                <th>Trade ID</th>
-                <th>PnL</th>
-            </tr>
-            ${tradeRows}
-        </table>
-        <p class="subtitle">Last updated: ${new Date().toLocaleTimeString()}</p>
-      </body>
-      </html>`;
-      res.send(html);
-  });
-  // ------------------------------------
-
   // ---------- START ----------
   app.listen(PORT, () => {
-    log.info(`Web server started and listening on port ${PORT}`);
   });
 }
