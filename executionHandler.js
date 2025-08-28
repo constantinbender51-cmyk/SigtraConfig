@@ -1,141 +1,99 @@
-// executionHandler.js - without logging
-import { KrakenFuturesApi } from './krakenApi.js';
+// executionHandler.js - with enhanced logging
+import { log } from './logger.js';
 
 /**
  * @class ExecutionHandler
- * @description Places a trade by first sending an entry order,
- * then waiting for a fill, and finally placing
- * stop-loss and take-profit orders.
+ * @description Places a trade in two steps: first the entry order, then a minute later, the stop-loss and take-profit orders.
  */
 export class ExecutionHandler {
     constructor(api) {
         if (!api) {
+            // Use an error log for critical initialization issues
+            log.error("ExecutionHandler requires an instance of the KrakenFuturesApi client. Exiting.", new Error("Missing KrakenFuturesApi instance"));
             throw new Error("ExecutionHandler requires an instance of the KrakenFuturesApi client.");
         }
+        log.info("ExecutionHandler initialized.");
         this.api = api;
     }
 
     /**
-     * Handles the entire trade placement and management lifecycle.
-     * @param {Object} tradeDetails - The trade parameters.
-     * @param {string} tradeDetails.signal - 'LONG' or 'SHORT'.
-     * @param {string} tradeDetails.pair - The trading pair symbol.
-     * @param {Object} tradeDetails.params - The calculated trade parameters from RiskManager.
-     * @returns {Promise<Object>} - A promise that resolves when the trade is managed.
+     * @method placeOrder
+     * @description Orchestrates the two-step order placement process.
+     * @param {object} tradeDetails The trade parameters.
+     * @param {string} tradeDetails.signal 'LONG' or 'SHORT'.
+     * @param {string} tradeDetails.pair The trading pair (e.g., 'PI_XBTUSD').
+     * @param {object} tradeDetails.params The order parameters.
+     * @param {number} tradeDetails.params.size The size of the order.
+     * @param {number} tradeDetails.params.stopLoss The stop-loss price.
+     * @param {number} tradeDetails.params.takeProfit The take-profit price.
+     * @param {number} tradeDetails.lastPrice The last known price of the instrument.
      */
-    async placeOrder({ signal, pair, params }) {
+    async placeOrder({ signal, pair, params, lastPrice }) {
         const { size, stopLoss, takeProfit } = params;
+        
+        // Log the received parameters for debugging
+        log.info('Received trade details for order placement.', { signal, pair, size, stopLoss, takeProfit, lastPrice });
 
-        // Step 1: Place the aggressive entry order
+        if (!['LONG', 'SHORT'].includes(signal) || !pair || !size || !stopLoss || !takeProfit || !lastPrice) {
+            // Log a specific error for invalid inputs
+            log.error("Invalid trade details provided to ExecutionHandler.", new Error("Validation failed for order parameters"));
+            throw new Error("Invalid trade details provided to ExecutionHandler, lastPrice is required.");
+        }
+
         const entrySide = (signal === 'LONG') ? 'buy' : 'sell';
+        const closeSide = (signal === 'LONG') ? 'sell' : 'buy';
+
+        // Use an aggressive limit price for the entry order to simulate a market order.
+        const entrySlippagePercent = 0.001; // 0.1%
+        const entryLimitPrice = (signal === 'LONG')
+            ? Math.round(lastPrice * (1 + entrySlippagePercent))
+            : Math.round(lastPrice * (1 - entrySlippagePercent));
+
+        log.info(`Step 1: Preparing to place entry order for ${size} BTC on ${pair}`);
 
         try {
-            const entryResponse = await this.api.sendOrder({
-                orderType: 'mkt', // Using a market order for guaranteed fill
+            // ----------------------------------------------------
+            // Step 1: Send the initial entry order.
+            // Using `sendOrder` for a single order, as requested.
+            // ----------------------------------------------------
+            const entryOrderPayload = {
+                orderType: 'lmt',
                 symbol: pair,
                 side: entrySide,
                 size: size,
-                reduceOnly: false
-            });
+                limitPrice: entryLimitPrice,
+            };
 
-            // Added a check to ensure entryResponse and sendstatus are defined
-            if (!entryResponse || entryResponse.result !== 'success' || !entryResponse.sendstatus) {
-                throw new Error("Entry order placement failed or returned an invalid response.");
+            log.info('Sending entry order to API.', { payload: entryOrderPayload });
+            const entryResponse = await this.api.sendOrder(entryOrderPayload);
+
+            if (entryResponse.result === 'success') {
+                log.info("✅ Entry order successfully placed. Waiting 60 seconds to place protection orders...");
+            } else {
+                log.error("❌ Failed to place entry order. Aborting order placement.", { apiResponse: entryResponse });
+                return entryResponse; // Abort if the first order fails
             }
 
-            const entryOrderId = entryResponse.sendstatus.order_id;
+            // ----------------------------------------------------
+            // Step 2: Wait for 1 minute before placing the next orders.
+            // ----------------------------------------------------
+            await new Promise(resolve => setTimeout(resolve, 60000));
+            log.info("One-minute delay complete. Proceeding with protection orders.");
 
-            // Step 2: Wait for the order to be filled
-            const filledOrder = await this.monitorOrderFill(entryOrderId);
+            // ----------------------------------------------------
+            // Step 3: Prepare and send the stop-loss and take-profit orders.
+            // ----------------------------------------------------
+            const stopSlippagePercent = 0.01; // 1% slippage buffer
+            const stopLimitPrice = (closeSide === 'sell')
+                ? Math.round(stopLoss * (1 - stopSlippagePercent))
+                : Math.round(stopLoss * (1 + stopSlippagePercent));
 
-            if (!filledOrder) {
-                // Here you might want to cancel the order
-                return;
-            }
-
-            const { averagePrice } = filledOrder;
-
-            // Step 3: Place the stop-loss and take-profit orders
-            await this.placeExitOrders({
-                signal,
-                pair,
-                size,
-                averagePrice,
-                stopLoss,
-                takeProfit
-            });
-
-        } catch (error) {
-            throw error;
-        }
-    }
-
-    /**
-     * Polls the recent orders endpoint to check if the entry order has been filled.
-     * @param {string} orderId - The ID of the order to monitor.
-     * @returns {Promise<Object|null>} - The filled order object or null if timeout.
-     */
-    async monitorOrderFill(orderId) {
-        const TIMEOUT_MS = 60000; // 60-second timeout
-        const POLL_INTERVAL_MS = 5000; // Poll every 5 seconds
-        const startTime = Date.now();
-
-        while (Date.now() - startTime < TIMEOUT_MS) {
-            try {
-                // Fetch recent orders, specifically looking for the one we just placed
-                const recentOrdersResponse = await this.api.getRecentOrders({ count: 5 }); // Fetch a few recent orders
-                const orders = recentOrdersResponse?.orders || [];
-                
-                // Find our order by ID and check its status
-                const order = orders.find(o => o.orderId === orderId);
-
-                if (order && order.isFilled) {
-                    return order; // Order is filled, return the object
-                }
-            } catch (error) {
-                // Continue polling even if there's an error to not block the loop
-            }
-
-            // Wait for the next poll interval
-            await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
-        }
-
-        return null;
-    }
-
-    /**
-     * Places the stop-loss and take-profit orders as a batch.
-     * @param {Object} params - The parameters for the exit orders.
-     * @param {string} params.signal - 'LONG' or 'SHORT'.
-     * @param {string} params.pair - The trading pair.
-     * @param {number} params.size - The size of the position.
-     * @param {number} params.averagePrice - The actual entry price.
-     * @param {number} params.stopLoss - The calculated stop-loss price.
-     * @param {number} params.takeProfit - The calculated take-profit price.
-     */
-    async placeExitOrders({ signal, pair, size, averagePrice, stopLoss, takeProfit }) {
-        const closeSide = (signal === 'LONG') ? 'sell' : 'buy';
-
-        // Recalculate stop-loss and take-profit based on the actual average fill price.
-        // This is a crucial step for accurate risk management.
-        // The original logic already had a good calculation, so we can use that.
-        // For simplicity, we'll use the 'stopLoss' and 'takeProfit' values from the parameters
-        // which were pre-calculated using the last market price. In a real-world scenario,
-        // you would recalculate them here using `averagePrice`.
-
-        // Create a stop-limit order for the stop-loss.
-        const stopSlippagePercent = 0.01; // 1% slippage buffer
-        const stopLimitPrice = (closeSide === 'sell')
-            ? Math.round(stopLoss * (1 - stopSlippagePercent))
-            : Math.round(stopLoss * (1 + stopSlippagePercent));
-
-        try {
             const batchOrderPayload = {
                 batchOrder: [
-                    // 1. The Stop-Loss Order (Stop-Limit)
+                    // The Stop-Loss Order (Stop-Limit)
                     {
                         order: 'send',
-                        order_tag: 'stop-loss',
+                        order_tag: '2',
                         orderType: 'stp',
                         symbol: pair,
                         side: closeSide,
@@ -144,10 +102,10 @@ export class ExecutionHandler {
                         stopPrice: stopLoss,
                         reduceOnly: true
                     },
-                    // 2. The Take-Profit Order (Limit Order)
+                    // The Take-Profit Order (Limit Order)
                     {
                         order: 'send',
-                        order_tag: 'take-profit',
+                        order_tag: '3',
                         orderType: 'lmt',
                         symbol: pair,
                         side: closeSide,
@@ -157,15 +115,23 @@ export class ExecutionHandler {
                     }
                 ]
             };
+            
+            log.info(`Sending batch order for stop-loss and take-profit. Payload:`, { payload: batchOrderPayload });
 
-            const response = await this.api.batchOrder({ json: JSON.stringify(batchOrderPayload) });
+            const protectionResponse = await this.api.batchOrder({ json: JSON.stringify(batchOrderPayload) });
+            
+            log.info('Protection Orders API Response received.', { response: protectionResponse });
 
-            if (response.result === 'success') {
-                return response;
+            if (protectionResponse.result === 'success') {
+                log.info("✅ Successfully placed protection orders!");
             } else {
-                throw new Error("Failed to place exit orders. API response was not successful.");
+                log.error("❌ Failed to place protection orders. API response was not successful.", { apiResponse: protectionResponse });
             }
+
+            return protectionResponse;
+
         } catch (error) {
+            log.error("❌ CRITICAL ERROR in ExecutionHandler during order placement.", error);
             throw error;
         }
     }
