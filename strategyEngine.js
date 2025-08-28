@@ -14,8 +14,52 @@ const readLast10ClosedTradesFromFile = () => {
   } catch { return []; }
 };
 
-function buildLast10ClosedFromRawFills(rawFills, n = 10) { /* same as before */ }
+function buildLast10ClosedFromRawFills(rawFills, n = 10) {
+  if (!Array.isArray(rawFills) || rawFills.length === 0) return [];
 
+  // 1️⃣  discard everything earlier than bot launch
+  const eligible = rawFills.filter(
+    f => new Date(f.fillTime) >= new Date(BOT_START_TIME)
+  );
+  console.log('[FIFO-DEBUG] after start-time filter =', eligible.length);
+
+  if (eligible.length === 0) return [];
+
+  const fills = [...eligible].reverse(); // oldest→newest
+  const queue = [];
+  const closed = [];
+
+  // 2️⃣  rest of FIFO logic unchanged …
+  for (const f of fills) {
+    const side = f.side === 'buy' ? 'LONG' : 'SHORT';
+    if (!queue.length || queue.at(-1).side === side) {
+      queue.push({ side, entryTime: f.fillTime, entryPrice: f.price, size: f.size });
+      continue;
+    }
+
+    let remaining = f.size;
+    while (remaining > 0 && queue.length && queue[0].side !== side) {
+      const open = queue.shift();
+      const match = Math.min(remaining, open.size);
+      const pnl = (f.price - open.entryPrice) * match * (open.side === 'LONG' ? 1 : -1);
+      closed.push({
+        side: open.side,
+        entryTime: open.entryTime,
+        entryPrice: open.entryPrice,
+        exitTime: f.fillTime,
+        exitPrice: f.price,
+        size: match,
+        pnl
+      });
+      remaining -= match;
+      open.size -= match;
+      if (open.size > 0) queue.unshift(open);
+    }
+
+    if (remaining > 0) {
+      queue.push({ side, entryTime: f.fillTime, entryPrice: f.price, size: remaining });
+    }
+  }
 /* ---------- enhanced indicator helpers ---------- */
 const sma = (arr, len) => arr.slice(-len).reduce((a, b) => a + b, 0) / len;
 
