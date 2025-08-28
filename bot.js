@@ -80,34 +80,6 @@ async function cycle() {
         const risk = new RiskManager({ leverage: 10, stopLossMultiplier: 2, takeProfitMultiplier: 3, marginBuffer: 0.4 });
         const exec = new ExecutionHandler(data.api);
 
-        // =========================================================================
-        // TEMPORARY DEBUGGING BLOCK - TO BE REMOVED AFTER ISSUE IS RESOLVED
-        // This places a test market order to debug the ExecutionHandler.
-        // =========================================================================
-        try {
-            log.info("--- Placing a test market order for debugging ---");
-            const rawMarketData = await data.fetchAllData(OHLC_PAIR, 1);
-            const lastPrice = rawMarketData?.ohlc.at(-1)?.close;
-
-            if (lastPrice) {
-                const testParams = {
-                    size: 0.001,
-                    // Take-profit and stop-loss are 1000 points away from the last price.
-                    // Note: 1000 points is 1000 * 0.5 (tick size) = 500 USD.
-                    takeProfit: lastPrice + 1000,
-                    stopLoss: lastPrice - 1000
-                };
-                await exec.placeOrder({ signal: 'LONG', pair: PAIR, params: testParams, lastPrice});
-                log.info("Test order placed successfully. Check console for API response.");
-            } else {
-                log.error("Could not fetch last market price for the test order. Skipping test order.");
-            }
-        } catch (testError) {
-            log.error("An error occurred during the test order placement:", testError);
-        }
-        log.info("--- End of test order block ---");
-        // =========================================================================
-
         let market;
         try {
             log.info('Fetching market data (1-minute interval)...');
