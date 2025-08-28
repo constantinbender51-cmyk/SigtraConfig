@@ -1,5 +1,4 @@
-// executionHandler.js - with enhanced logging and multi-step order flow
-import { log } from './logger.js';
+// executionHandler.js - without logging
 import { KrakenFuturesApi } from './krakenApi.js';
 
 /**
@@ -11,11 +10,9 @@ import { KrakenFuturesApi } from './krakenApi.js';
 export class ExecutionHandler {
     constructor(api) {
         if (!api) {
-            log.error("ExecutionHandler requires an instance of the KrakenFuturesApi client. Exiting.", new Error("Missing KrakenFuturesApi instance"));
             throw new Error("ExecutionHandler requires an instance of the KrakenFuturesApi client.");
         }
         this.api = api;
-        log.info("ExecutionHandler initialized.");
     }
 
     /**
@@ -30,7 +27,6 @@ export class ExecutionHandler {
         const { size, stopLoss, takeProfit } = params;
 
         // Step 1: Place the aggressive entry order
-        log.info(`Step 1: Placing aggressive ${signal} entry order for ${size} units.`);
         const entrySide = (signal === 'LONG') ? 'buy' : 'sell';
 
         try {
@@ -44,24 +40,20 @@ export class ExecutionHandler {
 
             // Added a check to ensure entryResponse and sendstatus are defined
             if (!entryResponse || entryResponse.result !== 'success' || !entryResponse.sendstatus) {
-                log.error("❌ Failed to place entry order. API response was not successful or was malformed.", { apiResponse: entryResponse });
                 throw new Error("Entry order placement failed or returned an invalid response.");
             }
 
             const entryOrderId = entryResponse.sendstatus.order_id;
-            log.info(`Entry order placed successfully with ID: ${entryOrderId}.`);
 
             // Step 2: Wait for the order to be filled
             const filledOrder = await this.monitorOrderFill(entryOrderId);
 
             if (!filledOrder) {
-                log.warn('Entry order timed out. No fills detected.');
                 // Here you might want to cancel the order
                 return;
             }
 
             const { averagePrice } = filledOrder;
-            log.info(`✅ Entry order filled! Average fill price: ${averagePrice}.`);
 
             // Step 3: Place the stop-loss and take-profit orders
             await this.placeExitOrders({
@@ -73,10 +65,7 @@ export class ExecutionHandler {
                 takeProfit
             });
 
-            log.info("✅ All exit orders placed successfully.");
-
         } catch (error) {
-            log.error("❌ CRITICAL ERROR in ExecutionHandler during the trade lifecycle.", error);
             throw error;
         }
     }
@@ -87,7 +76,6 @@ export class ExecutionHandler {
      * @returns {Promise<Object|null>} - The filled order object or null if timeout.
      */
     async monitorOrderFill(orderId) {
-        log.info(`Monitoring order ID: ${orderId} for fill.`);
         const TIMEOUT_MS = 60000; // 60-second timeout
         const POLL_INTERVAL_MS = 5000; // Poll every 5 seconds
         const startTime = Date.now();
@@ -102,11 +90,9 @@ export class ExecutionHandler {
                 const order = orders.find(o => o.orderId === orderId);
 
                 if (order && order.isFilled) {
-                    log.info(`Fill confirmed for order ID ${orderId}.`);
                     return order; // Order is filled, return the object
                 }
             } catch (error) {
-                log.error(`Error while polling for order fill status for ID ${orderId}:`, error);
                 // Continue polling even if there's an error to not block the loop
             }
 
@@ -114,7 +100,6 @@ export class ExecutionHandler {
             await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
         }
 
-        log.warn(`Timeout: Order ID ${orderId} was not filled within ${TIMEOUT_MS / 1000} seconds.`);
         return null;
     }
 
@@ -129,8 +114,6 @@ export class ExecutionHandler {
      * @param {number} params.takeProfit - The calculated take-profit price.
      */
     async placeExitOrders({ signal, pair, size, averagePrice, stopLoss, takeProfit }) {
-        log.info(`Step 2: Placing Stop-Loss and Take-Profit orders based on fill price.`);
-
         const closeSide = (signal === 'LONG') ? 'sell' : 'buy';
 
         // Recalculate stop-loss and take-profit based on the actual average fill price.
@@ -175,18 +158,14 @@ export class ExecutionHandler {
                 ]
             };
 
-            // DEBUGGING STEP: Log the exact JSON payload being sent
-            log.info(`Sending exit orders to API. Payload:`, batchOrderPayload);
             const response = await this.api.batchOrder({ json: JSON.stringify(batchOrderPayload) });
 
             if (response.result === 'success') {
-                log.info("✅ Successfully placed stop-loss and take-profit orders!");
+                return response;
             } else {
-                log.error("❌ Failed to place exit orders. API response was not successful.", { apiResponse: response });
+                throw new Error("Failed to place exit orders. API response was not successful.");
             }
-            return response;
         } catch (error) {
-            log.error("❌ CRITICAL ERROR in ExecutionHandler during exit order placement.", error);
             throw error;
         }
     }
