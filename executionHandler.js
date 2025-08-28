@@ -42,9 +42,10 @@ export class ExecutionHandler {
                 reduceOnly: false
             });
 
-            if (entryResponse.result !== 'success') {
-                log.error("❌ Failed to place entry order. API response was not successful.", { apiResponse: entryResponse });
-                throw new Error("Entry order placement failed.");
+            // Added a check to ensure entryResponse and sendstatus are defined
+            if (!entryResponse || entryResponse.result !== 'success' || !entryResponse.sendstatus) {
+                log.error("❌ Failed to place entry order. API response was not successful or was malformed.", { apiResponse: entryResponse });
+                throw new Error("Entry order placement failed or returned an invalid response.");
             }
 
             const entryOrderId = entryResponse.sendstatus.order_id;
