@@ -258,32 +258,4 @@ loop();
 process.on('SIGINT', () => {
     log.warn('SIGINT received – shutting down gracefully.');
     process.exit(0);
-});anager_failure' });
-            }
-        } else {
-            // Log why no trade was placed
-            log.info(`No trade will be placed. Signal is '${signal.signal}' or confidence is too low.`, {
-                confidence: signal.confidence,
-                minConfidence: MIN_CONF
-            });
-        }
-    } catch (e) {
-        log.error('An unexpected error occurred during the trading cycle.', e);
-    } finally {
-        log.info('--- Cycle finished ---');
-    }
-}
-
-/* ---------- loop ---------- */
-function loop() {
-    log.info('Starting main trading loop...');
-    cycle().finally(() => setTimeout(loop, CYCLE_MS));
-}
-
-loop();
-
-/* ---------- graceful shutdown ---------- */
-process.on('SIGINT', () => {
-    log.warn('SIGINT received – shutting down gracefully.');
-    process.exit(0);
 });
