@@ -8,6 +8,9 @@ import { ExecutionHandler } from './executionHandler.js';
 import { log } from './logger.js';
 
 dotenv.config();
+
+// Starting the web server and logging the event
+log.info('Starting web server...');
 startWebServer();
 
 /* ---------- constants ---------- */
@@ -54,6 +57,7 @@ const createThreeMinuteCandles = (candles, desiredCount) => {
 
     // Slice the original array to get only the most recent 'neededCandles'
     const relevantCandles = candles.slice(-neededCandles);
+    log.info(`Aggregating the last ${relevantCandles.length} 1-minute candles into ${desiredCount} 3-minute candles.`);
 
     // Process candles in groups of 3
     for (let i = 0; i < relevantCandles.length; i += 3) {
@@ -141,7 +145,7 @@ async function cycle() {
 
         curBalance = market.balance;
         equity.push(curBalance);
-        log.info(`Current balance: ${curBalance} USD`);
+        log.info(`Current balance: ${curBalance.toFixed(2)} USD`);
 
         if (lastBalance !== null) {
             returns.push((curBalance - lastBalance) / lastBalance);
@@ -151,21 +155,23 @@ async function cycle() {
 
         const open = market.positions?.openPositions?.filter(p => p.symbol === PAIR) || [];
 
-        if (!open.length && lastBalance !== null) {
-            const pnl = curBalance - firstBalance;
-            pnls.push(pnl);
-            log.info(`Position closed. Realized PnL: ${pnl} USD`);
-            recordStats();
-            lastBalance = curBalance; 
-        }
-
-        if (firstBalance === null && !open.length) {
-            firstBalance = lastBalance = curBalance;
-            log.metric('initial_balance', firstBalance, 'USD');
+        // Log when the bot is flat (no open positions)
+        if (!open.length) {
+            if (lastBalance !== null) {
+                const pnl = curBalance - firstBalance;
+                pnls.push(pnl);
+                log.info(`Position closed. Realized PnL: ${pnl.toFixed(2)} USD`);
+                recordStats();
+                lastBalance = curBalance;
+            } else if (firstBalance === null) {
+                firstBalance = lastBalance = curBalance;
+                log.metric('initial_balance', firstBalance, 'USD');
+                log.info(`Initial balance set to: ${firstBalance.toFixed(2)} USD`);
+            }
         }
 
         if (open.length) {
-            log.info('Position open; skipping trading logic.');
+            log.info(`Position is open (count: ${open.length}); skipping trading logic for this cycle.`);
             return;
         }
 
@@ -174,21 +180,23 @@ async function cycle() {
             log.info('Generating trading signal...');
             signal = await strat.generateSignal(market);
             log.metric('signal_cnt', ++sigCnt);
+            log.info(`Signal generated: ${signal.signal}, Confidence: ${signal.confidence}.`);
         } catch (signalError) {
             log.error('Failed to generate trading signal.', signalError);
             return;
         }
 
         if (signal.signal !== 'HOLD' && signal.confidence >= MIN_CONF) {
-            log.info(`Signal generated: ${signal.signal}, Confidence: ${signal.confidence}. Signal meets confidence threshold of ${MIN_CONF}.`);
-            
+            log.info(`Signal meets confidence threshold (${signal.confidence} >= ${MIN_CONF}). Proceeding with trade parameter calculation.`);
+
             const params = risk.calculateTradeParameters(market, signal);
 
             if (params) {
-                log.info(`Trade parameters calculated successfully. Quantity: ${params.volume}, Stop Loss: ${params.stopLoss}, Take Profit: ${params.takeProfit}`);
+                log.info(`Trade parameters calculated. Quantity: ${params.volume.toFixed(2)}, Stop Loss: ${params.stopLoss.toFixed(2)}, Take Profit: ${params.takeProfit.toFixed(2)}.`);
                 log.metric('trade_cnt', ++tradeCnt);
                 const lastPrice = market.ohlc.at(-1).close;
                 try {
+                    log.info(`Attempting to place a '${signal.signal}' order with a last price of ${lastPrice.toFixed(2)}.`);
                     await exec.placeOrder({ signal: signal.signal, pair: PAIR, params, lastPrice });
                     log.metric('order_cnt', ++orderCnt);
                     log.info('Order placed successfully.');
@@ -210,6 +218,7 @@ async function cycle() {
 
 /* ---------- loop ---------- */
 function loop() {
+    log.info('Starting main trading loop...');
     cycle().finally(() => setTimeout(loop, CYCLE_MS));
 }
 
@@ -217,6 +226,6 @@ loop();
 
 /* ---------- graceful shutdown ---------- */
 process.on('SIGINT', () => {
-    log.warn('SIGINT received – shutting down');
+    log.warn('SIGINT received – shutting down gracefully.');
     process.exit(0);
 });
