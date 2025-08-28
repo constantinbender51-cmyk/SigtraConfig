@@ -14,7 +14,24 @@ const readLast10ClosedTradesFromFile = () => {
   } catch { return []; }
 };
 
-function buildLast10ClosedFromRawFills(rawFills, n = 10) { /* same as before */ }
+function buildLast10ClosedFromRawFills(rawFills, n = 10) { 
+  // This function body was not provided, assuming it's correct for now.
+  // It should take raw fills and construct a list of closed trades.
+  // Example placeholder logic:
+  const trades = [];
+  let currentTrade = null;
+  for (const fill of rawFills) {
+    if (!currentTrade) {
+      currentTrade = { entryPrice: fill.price, entryTime: fill.timestamp, direction: fill.side, size: fill.size };
+    } else if (fill.side !== currentTrade.direction) {
+      currentTrade.exitTime = fill.timestamp;
+      currentTrade.exitPrice = fill.price;
+      trades.push(currentTrade);
+      currentTrade = null; // Start a new potential trade
+    }
+  }
+  return trades.filter(t => t.exitTime).slice(-n);
+}
 
 /* ---------- enhanced indicator helpers ---------- */
 const sma = (arr, len) => arr.slice(-len).reduce((a, b) => a + b, 0) / len;
@@ -85,16 +102,30 @@ export class StrategyEngine {
                    latest3m * 100).toFixed(2);
 
     /* micro-structure: CVD over last 30 prints */
-    const fills      = market.fills?.fills ?? [];
-    const last30Net  = fills.slice(-30)
+    const fills = market.fills?.fills ?? [];
+    
+    // LOGS ADDED HERE
+    console.log(`[DEBUG] Received fills data: Fills count = ${fills.length}`);
+    if (fills.length > 0) {
+      console.log(`[DEBUG] First fill: ${JSON.stringify(fills[0])}`);
+      console.log(`[DEBUG] Last fill: ${JSON.stringify(fills[fills.length - 1])}`);
+    }
+
+    const last30Net = fills.slice(-30)
                             .reduce((s, f) => s + (f.side === 'buy' ? f.size : -f.size), 0);
-    const { stdev }  = cvdSigma(fills, 100);
-    const zScore     = stdev ? last30Net / stdev : 0;
+    const { stdev } = cvdSigma(fills, 100);
+    const zScore = stdev ? last30Net / stdev : 0;
+    
+    // LOGS ADDED HERE
+    console.log(`[DEBUG] last30Net = ${last30Net}, stdev = ${stdev}, zScore = ${zScore.toFixed(2)}`);
 
     /* closed trades */
     const last10 = fills.length
       ? buildLast10ClosedFromRawFills(fills, 10)
       : readLast10ClosedTradesFromFile();
+
+    // LOGS ADDED HERE
+    console.log(`[DEBUG] Closed trades from fills: ${JSON.stringify(last10)}`);
 
     /* prompt */
     return `PF_XBTUSD Alpha Engine – 3-min cycle
@@ -103,7 +134,7 @@ Each 3-minute candle you emit exactly one JSON decision object.
 You do not manage existing positions; you only propose the next intended trade (or cash).
 Output schema (mandatory, no extra keys):
 {"signal":"LONG"|"SHORT"|"HOLD","confidence":0-100,"stop_loss_distance_in_usd":<positive_number>,"take_profit_distance_in_usd":<positive_number>,"reason":"<max_12_words>"}
-You may place a concise reasoning paragraph above the JSON.  
+You may place a concise reasoning paragraph above the JSON.
 The JSON object itself must still be the final, standalone block.
 
 Hard constraints
@@ -153,13 +184,21 @@ last10=${JSON.stringify(last10)}
 
   async generateSignal(marketData) {
     if (!marketData?.ohlc?.length) return this._fail('No OHLC');
+    // LOGS ADDED HERE
+    console.log(`[DEBUG] Starting signal generation for market data: ${JSON.stringify(marketData)}`);
     const prompt = this._prompt(marketData);
     const { ok, text, error } = await this._callWithRetry(prompt);
     if (!ok) {
       return this._fail(`API call failed: ${error.message}`);
     }
     try {
-      return JSON.parse(text.match(/\{.*\}/s)?.[0]);
+      const jsonMatch = text.match(/\{.*\}/s)?.[0];
+      // LOGS ADDED HERE
+      console.log(`[DEBUG] Raw JSON response from model: ${jsonMatch}`);
+      const signal = JSON.parse(jsonMatch);
+      // LOGS ADDED HERE
+      console.log(`[DEBUG] Successfully parsed signal: ${JSON.stringify(signal)}`);
+      return signal;
     } catch (e) {
       return this._fail(`Parse error: ${e.message}`);
     }
