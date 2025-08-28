@@ -1,4 +1,4 @@
-// bot.js – enhanced with robust error handling and logging
+// bot.js – enhanced with robust error handling, logging, and trade history
 import dotenv from 'dotenv';
 import { startWebServer } from './webServer.js';
 import { DataHandler } from './dataHandler.js';
@@ -6,8 +6,13 @@ import { StrategyEngine } from './strategyEngine.js';
 import { RiskManager } from './riskManager.js';
 import { ExecutionHandler } from './executionHandler.js';
 import { log } from './logger.js';
+import fs from 'fs';
+import path from 'path';
 
+// Load environment variables
 dotenv.config();
+
+// Start the web server
 startWebServer();
 
 /* ---------- constants ---------- */
@@ -18,6 +23,7 @@ const OHLC_PAIR = 'XBTUSD';
 const INTERVAL = 3;
 const MIN_CONF = 25;
 const CYCLE_MS = 180000;
+const TRADES_LOG_FILE = path.join(process.cwd(), 'logs', 'trades.ndjson');
 
 /* ---------- state ---------- */
 let sigCnt = 0;
@@ -77,6 +83,21 @@ const createThreeMinuteCandles = (candles, desiredCount) => {
         threeMinCandles.push(newCandle);
     }
     return threeMinCandles;
+};
+
+/**
+ * Logs a new trade to the trades log file.
+ * We'll use this to persist the trade data for the new web page.
+ * @param {object} tradeData - The data for the completed trade.
+ */
+const logTrade = (tradeData) => {
+    try {
+        const tradeRecord = JSON.stringify(tradeData);
+        fs.appendFileSync(TRADES_LOG_FILE, tradeRecord + '\n');
+        log.info('Trade successfully logged to file.');
+    } catch (err) {
+        log.error('Failed to log trade to file.', err);
+    }
 };
 
 const annualise = (arr) => {
@@ -160,6 +181,19 @@ async function cycle() {
             const pnl = curBalance - firstBalance;
             pnls.push(pnl);
             log.info(`Position closed. Realized PnL: ${pnl} USD`);
+
+            // --- NEW: Log the closed trade to file ---
+            // Note: In a real-world scenario, you would have more detailed trade data
+            // such as entry/exit price and side (long/short). For this example,
+            // we'll log what we have available.
+            const tradeData = {
+                timestamp: new Date().toISOString(),
+                pnl: pnl,
+                tradeId: `trade_${pnls.length}`
+            };
+            logTrade(tradeData);
+            // ----------------------------------------
+
             recordStats();
             lastBalance = curBalance;
             // Reset the flag for exit orders when the position is closed.
@@ -249,3 +283,4 @@ process.on('SIGINT', () => {
     log.warn('SIGINT received – shutting down');
     process.exit(0);
 });
+
