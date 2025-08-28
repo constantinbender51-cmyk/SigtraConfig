@@ -21,7 +21,6 @@ function buildLast10ClosedFromRawFills(rawFills, n = 10) {
   const eligible = rawFills.filter(
     f => new Date(f.fillTime) >= new Date(BOT_START_TIME)
   );
-  console.log('[DEBUG-FIFO] Fills after BOT_START_TIME filter:', eligible.length); // ⬅️ NEW LOG
   console.log('[FIFO-DEBUG] after start-time filter =', eligible.length);
 
   if (eligible.length === 0) return [];
@@ -61,6 +60,9 @@ function buildLast10ClosedFromRawFills(rawFills, n = 10) {
       queue.push({ side, entryTime: f.fillTime, entryPrice: f.price, size: remaining });
     }
   }
+
+  const last10 = closed.slice(-n).reverse();
+  return last10;
 }
 /* ---------- enhanced indicator helpers ---------- */
 const sma = (arr, len) => arr.slice(-len).reduce((a, b) => a + b, 0) / len;
