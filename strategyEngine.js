@@ -1,3 +1,4 @@
+// strategyEngine.js
 import fs from 'fs';
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
 import { log } from './logger.js';
@@ -116,63 +117,75 @@ export class StrategyEngine {
             ? buildLast10ClosedFromRawFills(market.fills.fills, 10)
             : readLast10ClosedTradesFromFile();
 
-        return `PF_XBTUSD Alpha Engine – 3-min cycle 
-You are a high-frequency statistical trader operating exclusively on the PF_XBTUSD perpetual contract. 
-Each 3-minute candle you emit exactly one JSON decision object. 
-You do not manage existing positions; you only propose the next intended trade (or cash). 
-Output schema (mandatory, no extra keys): 
-{"signal":"LONG"|"SHORT"|"HOLD","confidence":0-100,"stop_loss_distance_in_usd":<positive_number>,"take_profit_distance_in_usd":<positive_number>,"reason":"<max_12_words>"} 
-You may place a concise reasoning paragraph above the JSON.  
-The JSON object itself must still be the final, standalone block. 
-Hard constraints 
- 1. stop_loss_distance_in_usd 
- • Compute 1.2 – 1.8 × 14-period ATR, round to nearest 0.5 USD, and return that absolute dollar value (e.g., 930.5). 
- • Must be ≥ 0.5 USD. Never zero. 
- 2. take_profit_distance_in_usd 
- • Compute 1.5 – 4 × the dollar value chosen for stop-loss, round to nearest 0.5 USD, and return that absolute dollar value (e.g., 2100.0). 
- • Must be ≥ 1 USD. Never zero. 
- 3. confidence 
- • 0–29: weak/no edge → HOLD. 
- • 30–59: moderate edge. 
- • 60–100: strong edge; only when momentum and order-flow agree. 
-Decision logic (ranked) 
-A. Momentum filter 
- • LONG only if (close > 20-SMA) AND (momentum > 0 %). 
- • SHORT only if (close < 20-SMA) AND (momentum < 0 %). 
- • Otherwise HOLD. 
- B. Volatility regime 
- • When ATR% < 0.8 %, widen TP/SL ratio toward 3.5. 
- • When ATR% > 2 %, tighten TP/SL ratio toward 1.5. 
- C. Micro-structure 
- • If last10 net delta (buys-sells) > +500 contracts, raise confidence 10 pts for LONG, cut 10 pts for SHORT (reverse for negative delta). 
- D. Risk symmetry 
- • SL distance must be identical in absolute USD for LONG and SHORT signals of the same bar. 
- Reason field 
- 12-word max, e.g. “Long above SMA, bullish delta, SL 1500, TP 3800”. 
- Candles (3m): ${JSON.stringify(market.ohlc)} 
- Summary: 
- - lastClose=${latest} 
- - 20SMA=${sma20.toFixed(2)} 
- - momentum=${momPct}% 
- - 14ATR=${volPct}% 
- last10=${JSON.stringify(last10)} 
+        return `PF_XBTUSD Alpha Engine – 3-min cycle
+You are a high-frequency statistical trader operating exclusively on the PF_XBTUSD perpetual contract.
+Each 3-minute candle you emit exactly one JSON decision object.
+You do not manage existing positions; you only propose the next intended trade (or cash).
+Output schema (mandatory, no extra keys):
+{"signal":"LONG"|"SHORT"|"HOLD","confidence":0-100,"stop_loss_distance_in_usd":<positive_number>,"take_profit_distance_in_usd":<positive_number>,"reason":"<max_12_words>"}
+You may place a concise reasoning paragraph above the JSON.
+The JSON object itself must still be the final, standalone block.
+Hard constraints
+ 1. stop_loss_distance_in_usd
+ • Compute 1.2 – 1.8 × 14-period ATR, round to nearest 0.5 USD, and return that absolute dollar value (e.g., 930.5).
+ • Must be ≥ 0.5 USD. Never zero.
+ 2. take_profit_distance_in_usd
+ • Compute 1.5 – 4 × the dollar value chosen for stop-loss, round to nearest 0.5 USD, and return that absolute dollar value (e.g., 2100.0).
+ • Must be ≥ 1 USD. Never zero.
+ 3. confidence
+ • 0–29: weak/no edge → HOLD.
+ • 30–59: moderate edge.
+ • 60–100: strong edge; only when momentum and order-flow agree.
+Decision logic (ranked)
+A. Momentum filter
+ • LONG only if (close > 20-SMA) AND (momentum > 0 %).
+ • SHORT only if (close < 20-SMA) AND (momentum < 0 %).
+ • Otherwise HOLD.
+ B. Volatility regime
+ • When ATR% < 0.8 %, widen TP/SL ratio toward 3.5.
+ • When ATR% > 2 %, tighten TP/SL ratio toward 1.5.
+ C. Micro-structure
+ • If last10 net delta (buys-sells) > +500 contracts, raise confidence 10 pts for LONG, cut 10 pts for SHORT (reverse for negative delta).
+ D. Risk symmetry
+ • SL distance must be identical in absolute USD for LONG and SHORT signals of the same bar.
+ Reason field
+ 12-word max, e.g. “Long above SMA, bullish delta, SL 1500, TP 3800”.
+ Candles (3m): ${JSON.stringify(market.ohlc)}
+ Summary:
+ - lastClose=${latest}
+ - 20SMA=${sma20.toFixed(2)}
+ - momentum=${momPct}%
+ - 14ATR=${volPct}%
+ last10=${JSON.stringify(last10)}
  `;
     }
 
     async generateSignal(marketData) {
-        if (!marketData?.ohlc?.length) return this._fail('No OHLC');
+        if (!marketData?.ohlc?.length) {
+            log.error('Received an empty or invalid marketData object.');
+            return this._fail('No OHLC');
+        }
+
         const prompt = this._prompt(marketData);
+        log.info('Calling Gemini API to generate signal...');
         const { ok, text, error } = await this._callWithRetry(prompt);
 
         if (!ok) {
-            log.error('Failed to get signal from API', error);
+            log.error('API Call Failed. Returning default signal.', error);
             return this._fail('API Error');
         }
 
+        log.info(`API Response Received: ${text}`);
+
         try {
-            return JSON.parse(text.match(/\{.*\}/s)?.[0]);
+            const jsonMatch = text.match(/\{.*\}/s)?.[0];
+            if (!jsonMatch) {
+                log.error('Could not find a valid JSON object in the API response. Returning default signal.');
+                return this._fail('Parse error');
+            }
+            return JSON.parse(jsonMatch);
         } catch (e) {
-            log.error(`Failed to parse response: ${text}, Error: ${e}`);
+            log.error(`Failed to parse API response as JSON. Raw text: "${text}". Error: ${e.message}`);
             return this._fail('Parse error');
         }
     }
