@@ -8,22 +8,13 @@ const BOT_START_TIME = new Date().toISOString();
 /* ---------- unchanged helpers ---------- */
 const readLast10ClosedTradesFromFile = () => {
   try {
-    const trades = JSON.parse(fs.readFileSync('./trades.json', 'utf8'))
-                       .filter(t => t.exitTime)
-                       .slice(-10);
-    console.log('readLast10ClosedTradesFromFile: Found', trades.length, 'trades.');
-    return trades;
-  } catch (e) { 
-    console.error('readLast10ClosedTradesFromFile: Error reading trades.json:', e);
-    return []; 
-  }
+    return JSON.parse(fs.readFileSync('./trades.json', 'utf8'))
+               .filter(t => t.exitTime)
+               .slice(-10);
+  } catch { return []; }
 };
 
-function buildLast10ClosedFromRawFills(rawFills, n = 10) { 
-  // ... same as before
-  console.log('buildLast10ClosedFromRawFills: Placeholder log.');
-  return []; 
-}
+function buildLast10ClosedFromRawFills(rawFills, n = 10) { /* same as before */ }
 
 /* ---------- enhanced indicator helpers ---------- */
 const sma = (arr, len) => arr.slice(-len).reduce((a, b) => a + b, 0) / len;
@@ -40,20 +31,14 @@ const atr = (ohlc, len) => {
 };
 
 const cvdSigma = (fills, lookback = 100) => {
-  if (!fills?.length) {
-    console.log('cvdSigma: No fills available, returning default sigma.');
-    return { mean: 0, stdev: 1 };
-  }
+  if (!fills?.length) return { mean: 0, stdev: 1 };
   const deltas = [];
   for (let i = 0; i < fills.length - lookback; i += 1) {
     const slice = fills.slice(i, i + lookback);
     const net   = slice.reduce((s, f) => s + (f.side === 'buy' ? f.size : -f.size), 0);
     deltas.push(net);
   }
-  if (!deltas.length) {
-    console.log('cvdSigma: Not enough fills to compute deltas, returning default sigma.');
-    return { mean: 0, stdev: 1 };
-  }
+  if (!deltas.length) return { mean: 0, stdev: 1 };
   const mean   = deltas.reduce((a, b) => a + b, 0) / deltas.length;
   const stdev  = Math.sqrt(deltas.reduce((s, d) => s + (d - mean) ** 2, 0) / deltas.length) || 1;
   return { mean, stdev };
@@ -61,11 +46,9 @@ const cvdSigma = (fills, lookback = 100) => {
 
 export class StrategyEngine {
   constructor() {
-    console.log('StrategyEngine: Initializing engine and model...');
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     const safety = [{ category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE }];
     this.model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite', safetySettings: safety });
-    console.log('StrategyEngine: Model initialized.');
   }
 
   async _callWithRetry(prompt, max = 4) {
@@ -84,48 +67,37 @@ export class StrategyEngine {
   }
 
   _prompt(market) {
-    console.log('Prompt: Starting to build prompt string.');
-    console.log('Prompt: market.ohlc length:', market.ohlc.length);
     const closes3m  = market.ohlc.map(c => c.close);
     const latest3m  = closes3m.at(-1);
-    console.log('Prompt: latest3m close price:', latest3m);
 
     /* 15-min filter */
     const closes15m = market.ohlc.filter((_, i) => i % 5 === 0).map(c => c.close);
     const sma15_20  = sma(closes15m, 20);
-    console.log('Prompt: 15-min SMA(20):', sma15_20.toFixed(2));
 
     /* indicators */
     const atr50_3m = atr(market.ohlc, 50);          // smoother 3-min ATR
     const mom3Pct  = ((latest3m - sma(closes3m, 20)) / sma(closes3m, 20) * 100).toFixed(2);
     const volPct   = (atr50_3m / latest3m * 100).toFixed(2);
-    console.log('Prompt: atr50_3m:', atr50_3m.toFixed(2));
-    console.log('Prompt: momentum3m:', mom3Pct, '%');
-    console.log('Prompt: volatility %:', volPct, '%');
 
     /* 24-h intraday range % */
     const today = market.ohlc.slice(-480); // ~24h of 3-min
     const idr24 = ((Math.max(...today.map(c => c.high)) - Math.min(...today.map(c => c.low))) /
                    latest3m * 100).toFixed(2);
-    console.log('Prompt: 24hIDR%:', idr24, '%');
 
     /* micro-structure: CVD over last 30 prints */
     const fills      = market.fills?.fills ?? [];
-    console.log('Prompt: fills length:', fills.length);
     const last30Net  = fills.slice(-30)
                             .reduce((s, f) => s + (f.side === 'buy' ? f.size : -f.size), 0);
     const { stdev }  = cvdSigma(fills, 100);
     const zScore     = stdev ? last30Net / stdev : 0;
-    console.log('Prompt: last30Net:', last30Net.toFixed(2));
-    console.log('Prompt: CVD zScore:', zScore.toFixed(2));
 
     /* closed trades */
     const last10 = fills.length
       ? buildLast10ClosedFromRawFills(fills, 10)
       : readLast10ClosedTradesFromFile();
-    console.log('Prompt: last10 closed trades:', JSON.stringify(last10, null, 2));
 
-    const promptString = `PF_XBTUSD Alpha Engine – 3-min cycle
+    /* prompt */
+    return `PF_XBTUSD Alpha Engine – 3-min cycle
 You are a high-frequency statistical trader operating exclusively on the PF_XBTUSD perpetual contract.
 Each 3-minute candle you emit exactly one JSON decision object.
 You do not manage existing positions; you only propose the next intended trade (or cash).
@@ -177,38 +149,23 @@ Summary:
 - last30CVDz=${zScore.toFixed(2)}
 last10=${JSON.stringify(last10)}
 `;
-    console.log('Prompt: Final prompt string to be sent to model:', promptString);
-    return promptString;
   }
 
   async generateSignal(marketData) {
-    console.log('generateSignal: Received market data.');
-    if (!marketData?.ohlc?.length) {
-      console.error('generateSignal: No OHLC data found. Failing.');
-      return this._fail('No OHLC');
-    }
+    if (!marketData?.ohlc?.length) return this._fail('No OHLC');
     const prompt = this._prompt(marketData);
-    console.log('generateSignal: Calling model with prompt...');
-    
-    // Updated to correctly handle the error object from the new retry function
     const { ok, text, error } = await this._callWithRetry(prompt);
     if (!ok) {
-      console.error('generateSignal: API call failed after max retries.', error);
       return this._fail(`API call failed: ${error.message}`);
     }
-    console.log('generateSignal: Received raw model response:', text);
     try {
-      const parsedSignal = JSON.parse(text.match(/\{.*\}/s)?.[0]);
-      console.log('generateSignal: Successfully parsed signal:', JSON.stringify(parsedSignal, null, 2));
-      return parsedSignal;
+      return JSON.parse(text.match(/\{.*\}/s)?.[0]);
     } catch (e) {
-      console.error('generateSignal: Parse error:', e);
       return this._fail(`Parse error: ${e.message}`);
     }
   }
 
   _fail(reason) {
-    console.error('StrategyEngine: Returning HOLD signal due to failure:', reason);
     return { signal: 'HOLD', confidence: 0, stop_loss_distance_in_usd: 0, take_profit_distance_in_usd: 0, reason };
   }
 }
