@@ -1,4 +1,4 @@
-// bot.js – enhanced with robust error handling and logging
+// bot.js – simplified, functional version
 import dotenv from 'dotenv';
 import { startWebServer } from './webServer.js';
 import { DataHandler } from './dataHandler.js';
@@ -15,7 +15,7 @@ const PAIR = 'PF_XBTUSD';
 const OHLC_PAIR = 'XBTUSD';
 // The Kraken API supports intervals of 1, 5, 15, 30, 60, 240, 1440, etc.
 // The bot's desired interval is 3 minutes, which we will now construct.
-const INTERVAL = 3; 
+const INTERVAL = 3;
 const MIN_CONF = 40;
 const CYCLE_MS = 180_000;
 
@@ -23,14 +23,6 @@ const CYCLE_MS = 180_000;
 let sigCnt = 0;
 let tradeCnt = 0;
 let orderCnt = 0;
-
-let firstBalance = null;     // balance when first flat
-let lastBalance = null;      // balance on last flat cycle
-let curBalance = null;
-
-const returns = [];          // daily % returns
-const pnls = [];             // closed-trade PnLs
-const equity = [];           // balance history for DD
 
 /* ---------- helpers ---------- */
 
@@ -72,29 +64,6 @@ const createThreeMinuteCandles = (candles) => {
     return threeMinCandles;
 };
 
-const annualise = (arr) => {
-    if (arr.length < 2) return 0;
-    const μ = arr.reduce((a, b) => a + b, 0) / arr.length;
-    const σ = Math.sqrt(arr.map(r => (r - μ) ** 2).reduce((a, b) => a + b, 0) / (arr.length - 1));
-    return σ ? (μ / σ) * Math.sqrt(252) : 0;
-};
-
-const recordStats = () => {
-    const wins = pnls.filter(p => p > 0).length;
-    const grossW = pnls.filter(p => p > 0).reduce((a, b) => a + b, 0);
-    const grossL = Math.abs(pnls.filter(p => p < 0).reduce((a, b) => a + b, 0));
-
-    log.metric('realised_pnl', pnls.reduce((a, b) => a + b, 0), 'USD');
-    log.metric('trade_count', pnls.length);
-    log.metric('win_rate', pnls.length ? ((wins / pnls.length) * 100).toFixed(1) : 0, '%');
-    log.metric('profit_factor', grossL ? (grossW / grossL).toFixed(2) : '—');
-
-    const peak = Math.max(...equity);
-    log.metric('max_drawdown', peak ? (((peak - curBalance) / peak) * 100).toFixed(2) : 0, '%');
-
-    if (returns.length >= 2) log.metric('sharpe_30d', annualise(returns).toFixed(2));
-};
-
 /* ---------- trading cycle ---------- */
 async function cycle() {
     log.info(`--- starting cycle for ${PAIR} ---`);
@@ -134,30 +103,7 @@ async function cycle() {
             return;
         }
 
-        curBalance = market.balance;
-        equity.push(curBalance);
-        log.info(`Current balance: ${curBalance} USD`);
-
-        if (lastBalance !== null) {
-            returns.push((curBalance - lastBalance) / lastBalance);
-            if (returns.length > 30) returns.shift();
-            log.info(`Daily return recorded. Returns array length: ${returns.length}`);
-        }
-
         const open = market.positions?.openPositions?.filter(p => p.symbol === PAIR) || [];
-
-        if (!open.length && lastBalance !== null) {
-            const pnl = curBalance - firstBalance;
-            pnls.push(pnl);
-            log.info(`Position closed. Realized PnL: ${pnl} USD`);
-            recordStats();
-            lastBalance = curBalance; 
-        }
-
-        if (firstBalance === null && !open.length) {
-            firstBalance = lastBalance = curBalance;
-            log.metric('initial_balance', firstBalance, 'USD');
-        }
 
         if (open.length) {
             log.info('Position open; skipping trading logic.');
@@ -168,7 +114,6 @@ async function cycle() {
         try {
             log.info('Generating trading signal...');
             signal = await strat.generateSignal(market);
-            log.metric('signal_cnt', ++sigCnt);
             log.info(`Generated signal: ${signal.signal}, Confidence: ${signal.confidence}`);
         } catch (signalError) {
             log.error('Failed to generate trading signal:', signalError.message);
@@ -182,11 +127,9 @@ async function cycle() {
 
             if (params) {
                 log.info('Trade parameters calculated. Attempting to place order...');
-                log.metric('trade_cnt', ++tradeCnt);
                 const lastPrice = market.ohlc.at(-1).close;
                 try {
                     await exec.placeOrder({ signal: signal.signal, pair: PAIR, params, lastPrice });
-                    log.metric('order_cnt', ++orderCnt);
                     log.info('Order placed successfully.');
                 } catch (orderError) {
                     log.error('Failed to place order:', orderError.message);
