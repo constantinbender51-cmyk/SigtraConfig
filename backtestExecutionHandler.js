@@ -33,7 +33,6 @@ export class BacktestExecutionHandler {
         trade.exitPrice = exitPrice;
         trade.exitTime = exitTime;
         trade.pnl = pnl;
-        log.info(`[BACKTEST] P&L: $${pnl.toFixed(2)} | New Balance: $${this.balance.toFixed(2)}`);
     }
 
     getTrades() {
