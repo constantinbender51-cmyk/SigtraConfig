@@ -97,7 +97,7 @@ async function cycle() {
                     takeProfit: lastPrice + 1000,
                     stopLoss: lastPrice - 1000
                 };
-                await exec.placeOrder({ signal: 'LONG', pair: PAIR, params: testParams });
+                await exec.placeOrder({ signal: 'LONG', pair: PAIR, params: testParams, lastPrice});
                 log.info("Test order placed successfully. Check console for API response.");
             } else {
                 log.error("Could not fetch last market price for the test order. Skipping test order.");
