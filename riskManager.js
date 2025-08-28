@@ -72,9 +72,6 @@ export class RiskManager {
             stopLoss: parseFloat(stopLossPrice.toFixed(0)),
             takeProfit: parseFloat(takeProfitPrice.toFixed(0)),
         };
-
-        log.info(`[RISK] Final Trade Params: ${JSON.stringify(tradeParams, null, 2)}`);
-
         return tradeParams;
     }
 }
