@@ -172,6 +172,45 @@ export class BacktestRunner {
     log.info(`Winning Trades:  ${winningTrades}`);
     log.info(`Losing Trades:   ${losingTrades}`);
     log.info(`API Calls Made:  ${apiCalls}`);
+    
+    // --- Confidence Correlation Analysis ---
+    const confidenceBuckets = {
+        '0-29': { total: 0, wins: 0, pnl: 0 },
+        '30-59': { total: 0, wins: 0, pnl: 0 },
+        '60-100': { total: 0, wins: 0, pnl: 0 },
+    };
+
+    trades.forEach(trade => {
+        const confidence = trade.confidence;
+        let bucket = '';
+        if (confidence >= 0 && confidence <= 29) {
+            bucket = '0-29';
+        } else if (confidence >= 30 && confidence <= 59) {
+            bucket = '30-59';
+        } else if (confidence >= 60 && confidence <= 100) {
+            bucket = '60-100';
+        }
+
+        if (bucket) {
+            confidenceBuckets[bucket].total++;
+            confidenceBuckets[bucket].pnl += trade.pnl;
+            if (trade.pnl > 0) {
+                confidenceBuckets[bucket].wins++;
+            }
+        }
+    });
+
+    log.info(`\n--- Confidence vs. Performance ---`);
+    for (const bucket in confidenceBuckets) {
+        const data = confidenceBuckets[bucket];
+        const winRate = data.total > 0 ? ((data.wins / data.total) * 100).toFixed(2) : 0;
+        const avgPnl = data.total > 0 ? (data.pnl / data.total).toFixed(2) : 0;
+        log.info(`- Confidence ${bucket}:`);
+        log.info(`  - Trades: ${data.total}`);
+        log.info(`  - Win Rate: ${winRate}%`);
+        log.info(`  - Avg. P/L: $${avgPnl}`);
+    }
+    
     log.info(`-------------------------`);
 
     fs.writeFileSync('./trades.json', JSON.stringify(trades, null, 2));
