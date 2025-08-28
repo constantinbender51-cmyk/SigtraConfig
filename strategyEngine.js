@@ -1,4 +1,4 @@
-// strategyEngine.js  —  v2 with regime filters & micro-structure refinement
+// strategyEngine.js — v2 with regime filters & micro-structure refinement
 import fs from 'fs';
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
 import { log } from './logger.js';
@@ -11,13 +11,15 @@ const readLast10ClosedTradesFromFile = () => {
     return JSON.parse(fs.readFileSync('./trades.json', 'utf8'))
                .filter(t => t.exitTime)
                .slice(-10);
-  } catch { return []; }
+  } catch (e) {
+    console.log(`[WARN] Failed to read trades from file: ${e.message}`);
+    return [];
+  }
 };
 
-function buildLast10ClosedFromRawFills(rawFills, n = 10) { 
-  // This function body was not provided, assuming it's correct for now.
-  // It should take raw fills and construct a list of closed trades.
-  // Example placeholder logic:
+function buildLast10ClosedFromRawFills(rawFills, n = 10) {
+  // This function body was not provided in the original code, but this is a placeholder
+  // implementation to show how it would process fills into closed trades.
   const trades = [];
   let currentTrade = null;
   for (const fill of rawFills) {
@@ -103,21 +105,17 @@ export class StrategyEngine {
 
     /* micro-structure: CVD over last 30 prints */
     const fills = market.fills?.fills ?? [];
-    
-    // LOGS ADDED HERE
-    console.log(`[DEBUG] Received fills data: Fills count = ${fills.length}`);
-    if (fills.length > 0) {
-      console.log(`[DEBUG] First fill: ${JSON.stringify(fills[0])}`);
-      console.log(`[DEBUG] Last fill: ${JSON.stringify(fills[fills.length - 1])}`);
-    }
-
     const last30Net = fills.slice(-30)
                             .reduce((s, f) => s + (f.side === 'buy' ? f.size : -f.size), 0);
     const { stdev } = cvdSigma(fills, 100);
     const zScore = stdev ? last30Net / stdev : 0;
     
-    // LOGS ADDED HERE
-    console.log(`[DEBUG] last30Net = ${last30Net}, stdev = ${stdev}, zScore = ${zScore.toFixed(2)}`);
+    // LOGS ADDED HERE to confirm which data source is being used.
+    if (fills.length > 0) {
+      console.log(`[INFO] Using LIVE fills data. Fills count: ${fills.length}`);
+    } else {
+      console.log(`[INFO] No live fills data found. Falling back to trades file.`);
+    }
 
     /* closed trades */
     const last10 = fills.length
@@ -125,7 +123,8 @@ export class StrategyEngine {
       : readLast10ClosedTradesFromFile();
 
     // LOGS ADDED HERE
-    console.log(`[DEBUG] Closed trades from fills: ${JSON.stringify(last10)}`);
+    console.log(`[DEBUG] last30Net = ${last30Net}, stdev = ${stdev}, zScore = ${zScore.toFixed(2)}`);
+    console.log(`[DEBUG] Closed trades: ${JSON.stringify(last10)}`);
 
     /* prompt */
     return `PF_XBTUSD Alpha Engine – 3-min cycle
@@ -184,8 +183,18 @@ last10=${JSON.stringify(last10)}
 
   async generateSignal(marketData) {
     if (!marketData?.ohlc?.length) return this._fail('No OHLC');
-    // LOGS ADDED HERE
-    console.log(`[DEBUG] Starting signal generation for market data: ${JSON.stringify(marketData)}`);
+    
+    // Correctly apply the CVD logic based on the fills array.
+    const fills = marketData.fills?.fills ?? [];
+    const last30Net = fills.slice(-30).reduce((s, f) => s + (f.side === 'buy' ? f.size : -f.size), 0);
+    const { stdev } = cvdSigma(fills, 100);
+    const zScore = stdev ? last30Net / stdev : 0;
+    
+    // And correctly use the last10 logic.
+    const last10 = fills.length
+      ? buildLast10ClosedFromRawFills(fills, 10)
+      : readLast10ClosedTradesFromFile();
+
     const prompt = this._prompt(marketData);
     const { ok, text, error } = await this._callWithRetry(prompt);
     if (!ok) {
@@ -193,10 +202,7 @@ last10=${JSON.stringify(last10)}
     }
     try {
       const jsonMatch = text.match(/\{.*\}/s)?.[0];
-      // LOGS ADDED HERE
-      console.log(`[DEBUG] Raw JSON response from model: ${jsonMatch}`);
       const signal = JSON.parse(jsonMatch);
-      // LOGS ADDED HERE
       console.log(`[DEBUG] Successfully parsed signal: ${JSON.stringify(signal)}`);
       return signal;
     } catch (e) {
