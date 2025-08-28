@@ -148,32 +148,10 @@ export class StrategyEngine {
     const idr24 = ((Math.max(...today.map(c => c.high)) - Math.min(...today.map(c => c.low))) /
                    latest3m * 100).toFixed(2);
 
-    // This is the core change to fix back-testing mode.
-    const fills = market.fills?.fills?.length > 0
-        ? market.fills.fills
-        : readAllFillsFromFile();
-
-    /* micro-structure: CVD over last 30 prints */
-    const last30Net = fills.slice(-30)
-                            .reduce((s, f) => s + (f.side === 'buy' ? f.size : -f.size), 0);
-    const { stdev } = cvdSigma(fills, 100);
-    const zScore = stdev ? last30Net / stdev : 0;
-    
-    // Updated logs to be more clear about the data source.
-    if (fills.length > 0) {
-      console.log(`[INFO] Using a fills count of ${fills.length} for CVD calculation.`);
-    } else {
-      console.log(`[INFO] No fills data found. CVD will be zero.`);
-    }
-
     /* closed trades */
     const last10 = fills.length
       ? buildLast10ClosedFromRawFills(fills, 10)
       : readLast10ClosedTradesFromFile();
-
-    // LOGS ADDED HERE
-    console.log(`[DEBUG] last30Net = ${last30Net}, stdev = ${stdev}, zScore = ${zScore.toFixed(2)}`);
-    console.log(`[DEBUG] Closed trades: ${JSON.stringify(last10)}`);
 
     /* prompt */
     return `PF_XBTUSD Alpha Engine – 3-min cycle
@@ -206,9 +184,6 @@ A. 15-min momentum filter
 B. Volatility regime
  • Use 50-period ATR on 3-min for SL/TP calculation.
  • Adjust TP/SL ratio as above.
-C. Micro-structure
- • Compute signed CVD over last 30 fills (Z-score vs 100-fill history).
- • |Z| > 1.5 → +15 confidence for aligned direction, –15 for opposite.
 D. Trade frequency guard
  • Skip if last closed position exited < 15 min ago.
 E. Risk symmetry
@@ -225,7 +200,6 @@ Summary:
 - momentum3m=${mom3Pct}%
 - atr50_3m=${atr50_3m.toFixed(2)}
 - 24hIDR%=${idr24}%
-- last30CVDz=${zScore.toFixed(2)}
 last10=${JSON.stringify(last10)}
 `;
   }
@@ -233,20 +207,6 @@ last10=${JSON.stringify(last10)}
   async generateSignal(marketData) {
     if (!marketData?.ohlc?.length) return this._fail('No OHLC');
     
-    // Correctly apply the CVD logic based on the fills array.
-    const fills = marketData.fills?.fills?.length > 0
-        ? marketData.fills.fills
-        : readAllFillsFromFile();
-
-    const last30Net = fills.slice(-30).reduce((s, f) => s + (f.side === 'buy' ? f.size : -f.size), 0);
-    const { stdev } = cvdSigma(fills, 100);
-    const zScore = stdev ? last30Net / stdev : 0;
-    
-    // And correctly use the last10 logic.
-    const last10 = fills.length
-      ? buildLast10ClosedFromRawFills(fills, 10)
-      : readLast10ClosedTradesFromFile();
-
     const prompt = this._prompt(marketData);
     const { ok, text, error } = await this._callWithRetry(prompt);
     if (!ok) {
