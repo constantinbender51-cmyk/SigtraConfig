@@ -2,7 +2,6 @@
 import crypto from 'crypto';
 import axios from 'axios';
 import qs from 'querystring';
-import { log } from './logger.js'; // Assuming a logger is available
 
 const SPOT_OHLC_URL = 'https://api.kraken.com/0/public/OHLC';
 const BASE_URL      = 'https://demo-futures.kraken.com';
@@ -51,9 +50,6 @@ export class KrakenFuturesApi {
     try {
       const { data } = await axios({ method, url, headers, data: post });
 
-      // DEBUGGING STEP: Log the raw response from the API
-      log.info(`API Response for [${method} ${endpoint}]:`, data);
-
       // Check for a common Kraken API error format
       if (data && data.result === 'error' && data.errors && data.errors.length > 0) {
         const errorMessage = data.errors.map(err => `Code: ${err.code}, Message: ${err.msg}`).join(', ');
@@ -62,9 +58,7 @@ export class KrakenFuturesApi {
 
       return data;
     } catch (e) {
-      // DEBUGGING STEP: Log the response data from the error object if it exists
       const info = e.response?.data || { message: e.message };
-      log.error(`Axios Error Response for [${method} ${endpoint}]:`, info);
       throw new Error(`[${method} ${endpoint}] ${JSON.stringify(info)}`);
     }
   }
@@ -106,7 +100,6 @@ export class KrakenFuturesApi {
         open:  +o[1], high: +o[2], low: +o[3], close: +o[4], volume: +o[6]
       }));
     } catch (e) {
-      console.error('fetchKrakenData error:', e.message);
       return null;
     }
   }
