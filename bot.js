@@ -35,39 +35,44 @@ const equity = [];           // balance history for DD
 /* ---------- helpers ---------- */
 
 /**
- * Aggregates an array of 1-minute OHLC candles into 3-minute candles.
- * This is necessary because Kraken's API does not support 3-minute intervals directly.
+ * Aggregates a fixed number of 1-minute OHLC candles into 3-minute candles.
+ * This function is now designed to return a specific number of candles.
  * @param {Array<Object>} candles - An array of 1-minute candle objects from the API.
+ * @param {number} desiredCount - The number of 3-minute candles to produce.
  * @returns {Array<Object>} - A new array of 3-minute candle objects.
  */
-const createThreeMinuteCandles = (candles) => {
+const createThreeMinuteCandles = (candles, desiredCount) => {
     const threeMinCandles = [];
-    if (!candles || candles.length < 3) {
-        log.warn('Not enough 1-minute data to create 3-minute candles.');
+    // To get N 3-minute candles, we need 3 * N 1-minute candles.
+    const neededCandles = desiredCount * 3;
+
+    // Check if we have enough raw data to create the desired number of candles.
+    if (!candles || candles.length < neededCandles) {
+        log.warn(`Not enough 1-minute data to create ${desiredCount} 3-minute candles. Needed: ${neededCandles}, Got: ${candles.length || 0}.`);
         return threeMinCandles;
     }
 
+    // Slice the original array to get only the most recent 'neededCandles'
+    const relevantCandles = candles.slice(-neededCandles);
+
     // Process candles in groups of 3
-    for (let i = 0; i < candles.length; i += 3) {
-        // Ensure there are at least 3 candles remaining
-        if (i + 2 < candles.length) {
-            const group = candles.slice(i, i + 3);
-            const newCandle = {
-                // The open price is the open of the first candle in the group
-                open: group[0].open,
-                // The highest price is the maximum high from all candles in the group
-                high: Math.max(...group.map(c => c.high)),
-                // The lowest price is the minimum low from all candles in the group
-                low: Math.min(...group.map(c => c.low)),
-                // The close price is the close of the last candle in the group
-                close: group[2].close,
-                // The volume is the sum of volumes from all candles in the group
-                volume: group.reduce((sum, c) => sum + c.volume, 0),
-                // The timestamp is the timestamp of the last candle in the group
-                time: group[2].time
-            };
-            threeMinCandles.push(newCandle);
-        }
+    for (let i = 0; i < relevantCandles.length; i += 3) {
+        const group = relevantCandles.slice(i, i + 3);
+        const newCandle = {
+            // The open price is the open of the first candle in the group
+            open: group[0].open,
+            // The highest price is the maximum high from all candles in the group
+            high: Math.max(...group.map(c => c.high)),
+            // The lowest price is the minimum low from all candles in the group
+            low: Math.min(...group.map(c => c.low)),
+            // The close price is the close of the last candle in the group
+            close: group[2].close,
+            // The volume is the sum of volumes from all candles in the group
+            volume: group.reduce((sum, c) => sum + c.volume, 0),
+            // The timestamp is the timestamp of the last candle in the group
+            time: group[2].time
+        };
+        threeMinCandles.push(newCandle);
     }
     return threeMinCandles;
 };
@@ -114,11 +119,11 @@ async function cycle() {
         let market;
         try {
             log.info('Fetching market data (1-minute interval)...');
-            // Fetch 1-minute data, which is a supported interval
+            // Fetch 1-minute data, which is a supported interval.
             const rawMarketData = await data.fetchAllData(OHLC_PAIR, 1);
 
-            // Reconstruct the OHLC data from the raw 1-minute candles
-            rawMarketData.ohlc = createThreeMinuteCandles(rawMarketData.ohlc);
+            // Reconstruct the OHLC data from the raw 1-minute candles, ensuring we get exactly 52 candles.
+            rawMarketData.ohlc = createThreeMinuteCandles(rawMarketData.ohlc, 52);
 
             log.info('Market data fetched and aggregated successfully.');
             market = rawMarketData;
