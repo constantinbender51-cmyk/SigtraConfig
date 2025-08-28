@@ -124,7 +124,7 @@ export class ExecutionHandler {
 
             const protectionResponse = await this.api.batchOrder({ json: JSON.stringify(batchOrderPayload) });
 
-            console.log('Protection Orders API Response received:', JSON.stringify(protectionResponse, null, 2));
+            console.log('Protection Orders API Response received:', { response: protectionResponse });
 
             if (protectionResponse.result === 'success') {
                 console.log("✅ Successfully placed protection orders!");
