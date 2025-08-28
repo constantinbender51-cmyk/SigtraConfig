@@ -121,7 +121,7 @@ export class ExecutionHandler {
                 ]
             };
             
-            log.info(`Sending batch order for stop-loss and take-profit. Payload:`, JSON.stringify({ payload: batchOrderPayload }, null, 2)); 
+            log.info(`Sending batch order for stop-loss and take-profit. Payload:`, JSON.stringify(batchOrderPayload, null, 2)); 
 
             const protectionResponse = await this.api.batchOrder({ json: JSON.stringify(batchOrderPayload) });
             
