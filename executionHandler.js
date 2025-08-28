@@ -1,5 +1,4 @@
-// executionHandler.js
-
+// executionHandler.js - with enhanced logging
 import { log } from './logger.js';
 
 /**
@@ -9,16 +8,22 @@ import { log } from './logger.js';
 export class ExecutionHandler {
     constructor(api) {
         if (!api) {
+            // Use an error log for critical initialization issues
+            log.error("ExecutionHandler requires an instance of the KrakenFuturesApi client. Exiting.", new Error("Missing KrakenFuturesApi instance"));
             throw new Error("ExecutionHandler requires an instance of the KrakenFuturesApi client.");
         }
-        this.api = api;
         log.info("ExecutionHandler initialized.");
     }
 
     async placeOrder({ signal, pair, params, lastPrice }) {
         const { size, stopLoss, takeProfit } = params;
+        
+        // Log the received parameters for debugging
+        log.info('Received trade details for order placement.', { signal, pair, size, stopLoss, takeProfit, lastPrice });
 
         if (!['LONG', 'SHORT'].includes(signal) || !pair || !size || !stopLoss || !takeProfit || !lastPrice) {
+            // Log a specific error for invalid inputs
+            log.error("Invalid trade details provided to ExecutionHandler.", new Error("Validation failed for order parameters"));
             throw new Error("Invalid trade details provided to ExecutionHandler, lastPrice is required.");
         }
 
@@ -37,22 +42,9 @@ export class ExecutionHandler {
             ? Math.round(stopLoss * (1 - stopSlippagePercent))
             : Math.round(stopLoss * (1 + stopSlippagePercent));
 
-        log.info(`Preparing to place ${signal} order for ${size} BTC of ${pair}`);
+        log.info(`Preparing to place ${signal} order for ${size} BTC on ${pair}`);
 
         try {
-            // Construct the stop-loss order with the required key order.
-            const stopLossOrder = {
-                order: 'send',
-                order_tag: '2',
-                orderType: 'stp',
-                symbol: pair,
-                side: closeSide,
-                size: size,
-                limitPrice: stopLimitPrice, // Required for the order to be accepted
-                stopPrice: stopLoss,
-                reduceOnly: true
-            };
-
             const batchOrderPayload = {
                 batchOrder: [
                     // 1. The Main Entry Order (Aggressive Limit)
@@ -66,7 +58,17 @@ export class ExecutionHandler {
                         limitPrice: entryLimitPrice,
                     },
                     // 2. The Stop-Loss Order (Stop-Limit)
-                    stopLossOrder,
+                    {
+                        order: 'send',
+                        order_tag: '2',
+                        orderType: 'stp',
+                        symbol: pair,
+                        side: closeSide,
+                        size: size,
+                        limitPrice: stopLimitPrice,
+                        stopPrice: stopLoss,
+                        reduceOnly: true
+                    },
                     // 3. The Take-Profit Order (Limit Order)
                     {
                         order: 'send',
@@ -81,22 +83,26 @@ export class ExecutionHandler {
                 ]
             };
 
-            log.info(`Reverting to working Batch Order (Aggressive LMT Entry): ${JSON.stringify(batchOrderPayload, null, 2)}`);
+            // Log the full payload before sending to the API
+            log.info(`Sending batch order to API. Payload:`, { payload: batchOrderPayload });
 
             const response = await this.api.batchOrder({ json: JSON.stringify(batchOrderPayload) });
-
-            log.info(`Batch Order Response Received: ${JSON.stringify(response, null, 2)}`);
+            
+            // Log the raw response from the API
+            log.info('Batch Order API Response received.', { response });
 
             if (response.result === 'success') {
                 log.info("✅ Successfully placed batch order!");
             } else {
-                log.error("❌ Failed to place batch order.", response);
+                // Log the failure reason from the API response
+                log.error("❌ Failed to place batch order. API response was not successful.", { apiResponse: response });
             }
 
             return response;
 
         } catch (error) {
-            log.error("❌ CRITICAL ERROR in ExecutionHandler during order placement:", error);
+            // Use the error logging method to capture the stack trace
+            log.error("❌ CRITICAL ERROR in ExecutionHandler during order placement.", error);
             throw error;
         }
     }
