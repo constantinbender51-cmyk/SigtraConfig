@@ -8,17 +8,16 @@ import { ExecutionHandler } from './executionHandler.js';
 import { log } from './logger.js';
 
 dotenv.config();
-
-// Starting the web server and logging the event
-log.info('Starting web server...');
 startWebServer();
 
 /* ---------- constants ---------- */
 const PAIR = 'PF_XBTUSD';
 const OHLC_PAIR = 'XBTUSD';
-const INTERVAL = 3;
+// The Kraken API supports intervals of 1, 5, 15, 30, 60, 240, 1440, etc.
+// The bot's desired interval is 3 minutes, which we will now construct.
+const INTERVAL = 3; 
 const MIN_CONF = 40;
-const CYCLE_MS = 180000;
+const CYCLE_MS = 1_800_000;
 
 /* ---------- state ---------- */
 let sigCnt = 0;
@@ -36,50 +35,39 @@ const equity = [];           // balance history for DD
 /* ---------- helpers ---------- */
 
 /**
- * Aggregates a fixed number of 1-minute OHLC candles into 3-minute candles.
- * This function is now designed to return a specific number of candles.
+ * Aggregates an array of 1-minute OHLC candles into 3-minute candles.
+ * This is necessary because Kraken's API does not support 3-minute intervals directly.
  * @param {Array<Object>} candles - An array of 1-minute candle objects from the API.
- * @param {number} desiredCount - The number of 3-minute candles to produce.
  * @returns {Array<Object>} - A new array of 3-minute candle objects.
  */
-const createThreeMinuteCandles = (candles, desiredCount) => {
-    // Log the start of the aggregation process
-    log.info(`Attempting to aggregate 1-minute candles into ${desiredCount} 3-minute candles.`);
+const createThreeMinuteCandles = (candles) => {
     const threeMinCandles = [];
-    // To get N 3-minute candles, we need 3 * N 1-minute candles.
-    const neededCandles = desiredCount * 3;
-
-    // Check if we have enough raw data to create the desired number of candles.
-    if (!candles || candles.length < neededCandles) {
-        log.warn(`Not enough 1-minute data to create ${desiredCount} 3-minute candles. Needed: ${neededCandles}, Got: ${candles.length || 0}.`);
+    if (!candles || candles.length < 3) {
+        log.warn('Not enough 1-minute data to create 3-minute candles.');
         return threeMinCandles;
     }
 
-    // Slice the original array to get only the most recent 'neededCandles'
-    const relevantCandles = candles.slice(-neededCandles);
-    log.info(`Aggregating the last ${relevantCandles.length} 1-minute candles.`);
-
     // Process candles in groups of 3
-    for (let i = 0; i < relevantCandles.length; i += 3) {
-        const group = relevantCandles.slice(i, i + 3);
-        
-        // Ensure the last candle of the group has a valid timestamp before creating the Date object
-        if (!group[2] || typeof group[2].time === 'undefined') {
-            log.error(`Skipping group due to invalid or missing timestamp. Group index: ${i}`);
-            continue; // Skip this group and move to the next
+    for (let i = 0; i < candles.length; i += 3) {
+        // Ensure there are at least 3 candles remaining
+        if (i + 2 < candles.length) {
+            const group = candles.slice(i, i + 3);
+            const newCandle = {
+                // The open price is the open of the first candle in the group
+                open: group[0].open,
+                // The highest price is the maximum high from all candles in the group
+                high: Math.max(...group.map(c => c.high)),
+                // The lowest price is the minimum low from all candles in the group
+                low: Math.min(...group.map(c => c.low)),
+                // The close price is the close of the last candle in the group
+                close: group[2].close,
+                // The volume is the sum of volumes from all candles in the group
+                volume: group.reduce((sum, c) => sum + c.volume, 0),
+                // The timestamp is the timestamp of the last candle in the group
+                time: group[2].time
+            };
+            threeMinCandles.push(newCandle);
         }
-        
-        // Log the details of each new candle being created
-        log.info(`Creating 3-minute candle from 1-minute candles ending at: ${new Date(group[2].time * 1000).toISOString()}`);
-        const newCandle = {
-            open: group[0].open,
-            high: Math.max(...group.map(c => c.high)),
-            low: Math.min(...group.map(c => c.low)),
-            close: group[2].close,
-            volume: group.reduce((sum, c) => sum + c.volume, 0),
-            time: group[2].time
-        };
-        threeMinCandles.push(newCandle);
     }
     return threeMinCandles;
 };
@@ -96,27 +84,25 @@ const recordStats = () => {
     const grossW = pnls.filter(p => p > 0).reduce((a, b) => a + b, 0);
     const grossL = Math.abs(pnls.filter(p => p < 0).reduce((a, b) => a + b, 0));
 
-    // Using metric logging to record key stats
     log.metric('realised_pnl', pnls.reduce((a, b) => a + b, 0), 'USD');
     log.metric('trade_count', pnls.length);
     log.metric('win_rate', pnls.length ? ((wins / pnls.length) * 100).toFixed(1) : 0, '%');
     log.metric('profit_factor', grossL ? (grossW / grossL).toFixed(2) : '—');
 
     const peak = Math.max(...equity);
-    // Using structured data for the max_drawdown metric
-    log.metric('max_drawdown', peak ? (((peak - curBalance) / peak) * 100).toFixed(2) : 0, '%', { peak, current: curBalance });
+    log.metric('max_drawdown', peak ? (((peak - curBalance) / peak) * 100).toFixed(2) : 0, '%');
 
     if (returns.length >= 2) log.metric('sharpe_30d', annualise(returns).toFixed(2));
 };
 
 /* ---------- trading cycle ---------- */
 async function cycle() {
-    log.info(`--- Starting a new trading cycle for ${PAIR} ---`);
+    log.info(`--- starting cycle for ${PAIR} ---`);
 
     try {
         const { KRAKEN_API_KEY, KRAKEN_SECRET_KEY } = process.env;
         if (!KRAKEN_API_KEY || !KRAKEN_SECRET_KEY) {
-            log.error('Missing API keys. Please set KRAKEN_API_KEY and KRAKEN_SECRET_KEY in your .env file.', new Error('Missing environment variables'));
+            log.error('Missing API keys. Please set KRAKEN_API_KEY and KRAKEN_SECRET_KEY in your .env file.');
             return;
         }
 
@@ -127,67 +113,54 @@ async function cycle() {
 
         let market;
         try {
-            log.info('Fetching market data (1-minute interval) from Kraken...');
+            log.info('Fetching market data (1-minute interval)...');
+            // Fetch 1-minute data, which is a supported interval
             const rawMarketData = await data.fetchAllData(OHLC_PAIR, 1);
 
-            // Reconstruct the OHLC data from the raw 1-minute candles, ensuring we get exactly 52 candles.
-            const aggregatedCandles = createThreeMinuteCandles(rawMarketData.ohlc, 52);
-            rawMarketData.ohlc = aggregatedCandles;
+            // Reconstruct the OHLC data from the raw 1-minute candles
+            rawMarketData.ohlc = createThreeMinuteCandles(rawMarketData.ohlc);
 
-            log.info(`Market data fetched and aggregated successfully. Got ${aggregatedCandles.length} candles.`);
+            log.info('Market data fetched and aggregated successfully.');
             market = rawMarketData;
 
         } catch (dataError) {
-            log.error('Failed to fetch and process market data.', dataError);
+            log.error('Failed to fetch and process market data:', dataError.message);
+            log.debug('Full data fetch error object:', dataError);
             return; // Skip the rest of the cycle if data fetch fails
         }
 
         if (!market || market.balance === undefined || !market.ohlc || !market.ohlc.length) {
-            // More specific warning for data issues
-            log.warn('Incomplete or invalid market data received after aggregation. Skipping this cycle.', {
-                hasBalance: market?.balance !== undefined,
-                hasOhlc: Array.isArray(market?.ohlc) && market.ohlc.length > 0
-            });
+            log.warn('Incomplete or invalid market data received after aggregation. Skipping this cycle.');
             return;
         }
 
         curBalance = market.balance;
         equity.push(curBalance);
-        log.info(`Current balance: ${curBalance.toFixed(2)} USD`);
-        log.metric('current_balance', curBalance, 'USD');
+        log.info(`Current balance: ${curBalance} USD`);
 
         if (lastBalance !== null) {
-            const dailyReturn = (curBalance - lastBalance) / lastBalance;
-            returns.push(dailyReturn);
+            returns.push((curBalance - lastBalance) / lastBalance);
             if (returns.length > 30) returns.shift();
-            log.info(`Daily return calculated and recorded. Value: ${(dailyReturn * 100).toFixed(2)}%`);
+            log.info(`Daily return recorded. Returns array length: ${returns.length}`);
         }
 
         const open = market.positions?.openPositions?.filter(p => p.symbol === PAIR) || [];
 
-        // Log when the bot is flat (no open positions)
-        if (!open.length) {
-            if (lastBalance !== null) {
-                const pnl = curBalance - firstBalance;
-                pnls.push(pnl);
-                log.info(`Position closed. Realized PnL: ${pnl.toFixed(2)} USD`);
-                recordStats();
-                lastBalance = curBalance;
-            } else if (firstBalance === null) {
-                firstBalance = lastBalance = curBalance;
-                log.metric('initial_balance', firstBalance, 'USD');
-                log.info(`Initial balance set to: ${firstBalance.toFixed(2)} USD`);
-            }
-        } else {
-            // Log details about the open position
-            const openPositionsCount = open.length;
-            const firstPosition = open[0];
-            log.info(`Position is open (count: ${openPositionsCount}); skipping trading logic for this cycle.`, {
-                symbol: firstPosition.symbol,
-                side: firstPosition.side,
-                size: firstPosition.size,
-                openPrice: firstPosition.openPrice
-            });
+        if (!open.length && lastBalance !== null) {
+            const pnl = curBalance - firstBalance;
+            pnls.push(pnl);
+            log.info(`Position closed. Realized PnL: ${pnl} USD`);
+            recordStats();
+            lastBalance = curBalance; 
+        }
+
+        if (firstBalance === null && !open.length) {
+            firstBalance = lastBalance = curBalance;
+            log.metric('initial_balance', firstBalance, 'USD');
+        }
+
+        if (open.length) {
+            log.info('Position open; skipping trading logic.');
             return;
         }
 
@@ -196,59 +169,45 @@ async function cycle() {
             log.info('Generating trading signal...');
             signal = await strat.generateSignal(market);
             log.metric('signal_cnt', ++sigCnt);
-            // Log signal details with structured data
-            log.info('Signal generated.', { signal: signal.signal, confidence: signal.confidence });
+            log.info(`Generated signal: ${signal.signal}, Confidence: ${signal.confidence}`);
         } catch (signalError) {
-            log.error('Failed to generate trading signal.', signalError);
+            log.error('Failed to generate trading signal:', signalError.message);
+            log.debug('Full signal generation error object:', signalError);
             return;
         }
 
         if (signal.signal !== 'HOLD' && signal.confidence >= MIN_CONF) {
-            log.info(`Signal meets confidence threshold (${signal.confidence} >= ${MIN_CONF}). Proceeding with trade parameter calculation.`);
-
+            log.info(`Signal meets confidence threshold (${MIN_CONF}). Calculating trade parameters...`);
             const params = risk.calculateTradeParameters(market, signal);
 
             if (params) {
-                // Log calculated parameters with structured data for easy analysis
-                log.info('Trade parameters calculated.', {
-                    volume: params.volume,
-                    stopLoss: params.stopLoss,
-                    takeProfit: params.takeProfit,
-                });
+                log.info('Trade parameters calculated. Attempting to place order...');
                 log.metric('trade_cnt', ++tradeCnt);
                 const lastPrice = market.ohlc.at(-1).close;
                 try {
-                    log.info(`Attempting to place a '${signal.signal}' order...`);
-                    const orderResponse = await exec.placeOrder({ signal: signal.signal, pair: PAIR, params, lastPrice });
-                    if (orderResponse.result === 'success') {
-                         log.metric('order_cnt', ++orderCnt);
-                         log.info('Order placed successfully.');
-                    } else {
-                         log.error('Failed to place order. API response indicates failure.', orderResponse);
-                    }
+                    await exec.placeOrder({ signal: signal.signal, pair: PAIR, params, lastPrice });
+                    log.metric('order_cnt', ++orderCnt);
+                    log.info('Order placed successfully.');
                 } catch (orderError) {
-                    log.error('Failed to place order.', orderError);
+                    log.error('Failed to place order:', orderError.message);
+                    log.debug('Full order placement error object:', orderError);
                 }
             } else {
-                log.warn('Could not calculate valid trade parameters. Skipping trade.', { reason: 'risk_manager_failure' });
+                log.warn('Could not calculate valid trade parameters. Skipping trade.');
             }
         } else {
-            // Log why no trade was placed
-            log.info(`No trade will be placed. Signal is '${signal.signal}' or confidence is too low.`, {
-                confidence: signal.confidence,
-                minConfidence: MIN_CONF
-            });
+            log.info(`Signal is 'HOLD' or confidence is too low (${signal.confidence} < ${MIN_CONF}). No trade will be placed.`);
         }
     } catch (e) {
-        log.error('An unexpected error occurred during the trading cycle.', e);
+        log.error('An unexpected error occurred during the trading cycle:', e.message);
+        log.debug('Full unexpected error object:', e);
     } finally {
-        log.info('--- Cycle finished ---');
+        log.info('--- cycle finished ---');
     }
 }
 
 /* ---------- loop ---------- */
 function loop() {
-    log.info('Starting main trading loop...');
     cycle().finally(() => setTimeout(loop, CYCLE_MS));
 }
 
@@ -256,6 +215,6 @@ loop();
 
 /* ---------- graceful shutdown ---------- */
 process.on('SIGINT', () => {
-    log.warn('SIGINT received – shutting down gracefully.');
+    log.warn('SIGINT received – shutting down');
     process.exit(0);
 });
