@@ -62,6 +62,13 @@ const createThreeMinuteCandles = (candles, desiredCount) => {
     // Process candles in groups of 3
     for (let i = 0; i < relevantCandles.length; i += 3) {
         const group = relevantCandles.slice(i, i + 3);
+        
+        // Ensure the last candle of the group has a valid timestamp before creating the Date object
+        if (!group[2] || typeof group[2].time === 'undefined') {
+            log.error(`Skipping group due to invalid or missing timestamp. Group index: ${i}`);
+            continue; // Skip this group and move to the next
+        }
+        
         // Log the details of each new candle being created
         log.info(`Creating 3-minute candle from 1-minute candles ending at: ${new Date(group[2].time * 1000).toISOString()}`);
         const newCandle = {
@@ -224,6 +231,34 @@ async function cycle() {
                 }
             } else {
                 log.warn('Could not calculate valid trade parameters. Skipping trade.', { reason: 'risk_manager_failure' });
+            }
+        } else {
+            // Log why no trade was placed
+            log.info(`No trade will be placed. Signal is '${signal.signal}' or confidence is too low.`, {
+                confidence: signal.confidence,
+                minConfidence: MIN_CONF
+            });
+        }
+    } catch (e) {
+        log.error('An unexpected error occurred during the trading cycle.', e);
+    } finally {
+        log.info('--- Cycle finished ---');
+    }
+}
+
+/* ---------- loop ---------- */
+function loop() {
+    log.info('Starting main trading loop...');
+    cycle().finally(() => setTimeout(loop, CYCLE_MS));
+}
+
+loop();
+
+/* ---------- graceful shutdown ---------- */
+process.on('SIGINT', () => {
+    log.warn('SIGINT received – shutting down gracefully.');
+    process.exit(0);
+});anager_failure' });
             }
         } else {
             // Log why no trade was placed
