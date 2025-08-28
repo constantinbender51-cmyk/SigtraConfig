@@ -164,15 +164,6 @@ export class BacktestRunner {
     const losingTrades = totalTrades - winningTrades;
     const totalPnl = trades.reduce((sum, t) => sum + t.pnl, 0);
 
-    const winningPnl = trades.filter(t => t.pnl > 0).reduce((sum, t) => sum + t.pnl, 0);
-    const losingPnl = trades.filter(t => t.pnl < 0).reduce((sum, t) => sum + t.pnl, 0);
-    const profitFactor = losingPnl !== 0 ? Math.abs(winningPnl / losingPnl) : 'N/A';
-    const averageWinningTrade = winningTrades > 0 ? (winningPnl / winningTrades).toFixed(2) : 0;
-    const averageLosingTrade = losingTrades > 0 ? (losingPnl / losingTrades).toFixed(2) : 0;
-    const maxDrawdown = this.exec.calculateMaxDrawdown();
-    const maxConsecutiveWins = this.exec.calculateMaxConsecutive('win');
-    const maxConsecutiveLosses = this.exec.calculateMaxConsecutive('loss');
-
     log.info(`--- Backtest Summary ---`);
     log.info(`Initial Balance: $${this.cfg.INITIAL_BALANCE.toFixed(2)}`);
     log.info(`Final Balance:   $${this.exec.balance.toFixed(2)}`);
@@ -181,13 +172,7 @@ export class BacktestRunner {
     log.info(`Winning Trades:  ${winningTrades}`);
     log.info(`Losing Trades:   ${losingTrades}`);
     log.info(`API Calls Made:  ${apiCalls}`);
-    log.info(`\n--- Additional Metrics ---`);
-    log.info(`Profit Factor:              ${profitFactor}`);
-    log.info(`Average Winning Trade:      $${averageWinningTrade}`);
-    log.info(`Average Losing Trade:       $${averageLosingTrade}`);
-    log.info(`Max Drawdown:               ${(maxDrawdown * 100).toFixed(2)}%`);
-    log.info(`Max Consecutive Wins:       ${maxConsecutiveWins}`);
-    log.info(`Max Consecutive Losses:     ${maxConsecutiveLosses}`);
+    
     log.info(`-------------------------`);
 
     fs.writeFileSync('./trades.json', JSON.stringify(trades, null, 2));
