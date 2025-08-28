@@ -1,4 +1,4 @@
-// logger.js  (no date-fns)
+// logger.js (with error stack trace logging)
 import fs from 'fs';
 import path from 'path';
 
@@ -12,9 +12,19 @@ class Logger {
   _write(level, msg, extra = {}) {
     const ts = new Date().toISOString();
     const line = `[${ts}] [${level.padEnd(5)}] ${msg}`;
+    
+    // Log the main message to the console
     console.log(line);
     fs.appendFileSync(humanLog, line + '\n');
+    
+    // Check if a stack trace is available and log it
+    if (extra.stack) {
+        const stackLine = `[${ts}] [${level.padEnd(5)}] Stack: ${extra.stack}`;
+        console.error(stackLine);
+        fs.appendFileSync(humanLog, stackLine + '\n');
+    }
 
+    // Always log the full data to the json log file
     if (Object.keys(extra).length) {
       fs.appendFileSync(
         jsonLog,
