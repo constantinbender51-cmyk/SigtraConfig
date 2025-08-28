@@ -68,7 +68,20 @@ export class StrategyEngine {
     console.log('StrategyEngine: Model initialized.');
   }
 
-  async _callWithRetry(prompt, max = 4) { /* unchanged */ }
+  async _callWithRetry(prompt, max = 4) {
+    for (let i = 1; i <= max; i++) {
+      try {
+        const res = await this.model.generateContent(prompt);
+        const text = res.response.text?.();
+        if (!text?.length) throw new Error('Empty response');
+        return { ok: true, text };
+      } catch (err) {
+        if (i === max) return { ok: false, error: err };
+        console.log(`Call retry ${i} of ${max}`);
+        await new Promise(r => setTimeout(r, 61_000));
+      }
+    }
+  }
 
   _prompt(market) {
     console.log('Prompt: Starting to build prompt string.');
@@ -176,7 +189,13 @@ last10=${JSON.stringify(last10)}
     }
     const prompt = this._prompt(marketData);
     console.log('generateSignal: Calling model with prompt...');
-    const { ok, text } = await this._callWithRetry(prompt);
+    
+    // Updated to correctly handle the error object from the new retry function
+    const { ok, text, error } = await this._callWithRetry(prompt);
+    if (!ok) {
+      console.error('generateSignal: API call failed after max retries.', error);
+      return this._fail(`API call failed: ${error.message}`);
+    }
     console.log('generateSignal: Received raw model response:', text);
     try {
       const parsedSignal = JSON.parse(text.match(/\{.*\}/s)?.[0]);
@@ -184,7 +203,7 @@ last10=${JSON.stringify(last10)}
       return parsedSignal;
     } catch (e) {
       console.error('generateSignal: Parse error:', e);
-      return this._fail('Parse error');
+      return this._fail(`Parse error: ${e.message}`);
     }
   }
 
