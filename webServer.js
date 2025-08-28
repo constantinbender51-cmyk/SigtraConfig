@@ -155,8 +155,5 @@ export function startWebServer() {
 
   // ---------- START ----------
   app.listen(PORT, () => {
-    log.info(`Essentials: http://localhost:${PORT}/`);
-    log.info(`Deep dive : http://localhost:${PORT}/deep`);
-    log.info(`Raw logs  : http://localhost:${PORT}/logs`);
   });
 }
