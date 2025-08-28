@@ -32,12 +32,6 @@ export class ExecutionHandler {
     async placeOrder({ signal, pair, params, lastPrice }) {
         const { size, stopLoss, takeProfit } = params;
 
-        // Log the received parameters for debugging
-        console.log(`Size: ${size}`);
-        console.log(`Stop Loss: ${stopLoss}`);
-        console.log(`Take Profit: ${takeProfit}`);
-        console.log(`Pair: ${pair}`);
-        console.log(`Last Price: ${lastPrice}`);
         console.log(`Received trade details for order placement:`, { signal, pair, size, stopLoss, takeProfit, lastPrice });
 
         if (!['LONG', 'SHORT'].includes(signal) || !pair || !size || !stopLoss || !takeProfit || !lastPrice) {
@@ -126,7 +120,7 @@ export class ExecutionHandler {
                 ]
             };
 
-            console.log(`Sending batch order for stop-loss and take-profit. Payload:`, JSON.stringify(batchOrderPayload, null, 2));
+            console.log(`Sending batch order for stop-loss and take-profit. Payload:`, { payload: batchOrderPayload });
 
             const protectionResponse = await this.api.batchOrder({ json: JSON.stringify(batchOrderPayload) });
 
