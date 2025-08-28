@@ -183,7 +183,9 @@ A. Momentum filter
                 log.error('Could not find a valid JSON object in the API response. Returning default signal.');
                 return this._fail('Parse error');
             }
-            return JSON.parse(jsonMatch);
+            const signal = JSON.parse(jsonMatch);
+            log.info(`Successfully parsed signal: ${JSON.stringify(signal)}`); // New log line
+            return signal;
         } catch (e) {
             log.error(`Failed to parse API response as JSON. Raw text: "${text}". Error: ${e.message}`);
             return this._fail('Parse error');
