@@ -12,8 +12,8 @@ const config = {
     MINIMUM_CONFIDENCE_THRESHOLD: 0,
     MIN_SECONDS_BETWEEN_CALLS: 10,
     MAX_API_CALLS: 20,
-    DATA_WINDOW_SIZE: 720,
-    WARMUP_PERIOD: 720
+    DATA_WINDOW_SIZE: 52,
+    WARMUP_PERIOD: 52
 };
 
 async function main() {
