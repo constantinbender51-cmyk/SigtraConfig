@@ -17,6 +17,19 @@ const readLast10ClosedTradesFromFile = () => {
   }
 };
 
+// New helper function to read all fills from the historical data file.
+const readAllFillsFromFile = () => {
+  try {
+    const trades = JSON.parse(fs.readFileSync('./trades.json', 'utf8'));
+    // Flatten the fills from all closed trades into a single array.
+    const allFills = trades.flatMap(trade => trade.fills || []);
+    return allFills;
+  } catch (e) {
+    console.log(`[WARN] Failed to read all fills from file: ${e.message}`);
+    return [];
+  }
+};
+
 function buildLast10ClosedFromRawFills(rawFills, n = 10) {
   // This function body was not provided in the original code, but this is a placeholder
   // implementation to show how it would process fills into closed trades.
@@ -103,18 +116,22 @@ export class StrategyEngine {
     const idr24 = ((Math.max(...today.map(c => c.high)) - Math.min(...today.map(c => c.low))) /
                    latest3m * 100).toFixed(2);
 
+    // This is the core change: use historical fills if live data is not present.
+    const fills = market.fills?.fills?.length > 0
+        ? market.fills.fills
+        : readAllFillsFromFile();
+
     /* micro-structure: CVD over last 30 prints */
-    const fills = market.fills?.fills ?? [];
     const last30Net = fills.slice(-30)
                             .reduce((s, f) => s + (f.side === 'buy' ? f.size : -f.size), 0);
     const { stdev } = cvdSigma(fills, 100);
     const zScore = stdev ? last30Net / stdev : 0;
     
-    // LOGS ADDED HERE to confirm which data source is being used.
+    // Updated logs to be more clear about the data source.
     if (fills.length > 0) {
-      console.log(`[INFO] Using LIVE fills data. Fills count: ${fills.length}`);
+      console.log(`[INFO] Using historical fills for CVD calculation. Fills count: ${fills.length}`);
     } else {
-      console.log(`[INFO] No live fills data found. Falling back to trades file.`);
+      console.log(`[INFO] No fills data found. CVD will be zero.`);
     }
 
     /* closed trades */
@@ -185,7 +202,10 @@ last10=${JSON.stringify(last10)}
     if (!marketData?.ohlc?.length) return this._fail('No OHLC');
     
     // Correctly apply the CVD logic based on the fills array.
-    const fills = marketData.fills?.fills ?? [];
+    const fills = marketData.fills?.fills?.length > 0
+        ? marketData.fills.fills
+        : readAllFillsFromFile();
+
     const last30Net = fills.slice(-30).reduce((s, f) => s + (f.side === 'buy' ? f.size : -f.size), 0);
     const { stdev } = cvdSigma(fills, 100);
     const zScore = stdev ? last30Net / stdev : 0;
