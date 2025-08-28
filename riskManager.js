@@ -20,8 +20,8 @@ export class RiskManager {
         const { balance, ohlc } = marketData;
         const lastPrice = ohlc[ohlc.length - 1].close;
 
-        if (!balance || balance <= 0) {
-            log.error('[RISK] Invalid account balance.');
+        if (!balance || balance <= 0 || !lastPrice || lastPrice <= 0) {
+            log.error('[RISK] Invalid market data or account balance.');
             return null;
         }
 
@@ -39,23 +39,23 @@ export class RiskManager {
         // --- Step 1: Calculate Position Sizing based on 2% risk ---
         const riskPerUnit = stop_loss_distance_in_usd;
         const totalCapitalToRisk = balance * 0.02;
-        let sizeInUnits = totalCapitalToRisk / riskPerUnit;
+        const sizeBasedOnRisk = totalCapitalToRisk / riskPerUnit;
 
-        // --- Step 2: NEW! Calculate a safety cap based on available margin ---
-        // This prevents the position from being too large for the account.
-        // It now includes a 5% buffer to avoid rejections at maximum size.
-        const maxSizeBasedOnMargin = ((balance * this.leverage) / lastPrice) * 0.95;
+        // --- Step 2: Calculate a safety cap based on available margin ---
+        // This calculation now correctly includes the margin buffer to prevent the error.
+        const maxPositionValueWithBuffer = (balance * this.leverage) / (1 + this.marginBuffer);
+        const sizeBasedOnMargin = maxPositionValueWithBuffer / lastPrice;
 
         // --- Step 3: Use the smaller of the two calculated sizes ---
         // This ensures we never risk more than 2% AND never take a position we can't afford.
-        sizeInUnits = Math.min(sizeInUnits, maxSizeBasedOnMargin);
+        let sizeInUnits = Math.min(sizeBasedOnRisk, sizeBasedOnMargin);
 
         // --- Final Safety Checks ---
         const positionValueUSD = sizeInUnits * lastPrice;
         const marginRequired = (positionValueUSD / this.leverage) * (1 + this.marginBuffer);
 
         if (marginRequired > balance) {
-            // This check should now almost never fail, but it's good practice to keep.
+            // This check should now always pass with the corrected logic above.
             log.warn(`[RISK] Insufficient funds. Required: $${marginRequired.toFixed(2)}, Available: $${balance.toFixed(2)}`);
             return null;
         }
