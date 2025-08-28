@@ -21,6 +21,7 @@ function buildLast10ClosedFromRawFills(rawFills, n = 10) {
   const eligible = rawFills.filter(
     f => new Date(f.fillTime) >= new Date(BOT_START_TIME)
   );
+  console.log('[DEBUG-FIFO] Fills after BOT_START_TIME filter:', eligible.length); // ⬅️ NEW LOG
   console.log('[FIFO-DEBUG] after start-time filter =', eligible.length);
 
   if (eligible.length === 0) return [];
@@ -60,6 +61,7 @@ function buildLast10ClosedFromRawFills(rawFills, n = 10) {
       queue.push({ side, entryTime: f.fillTime, entryPrice: f.price, size: remaining });
     }
   }
+}
 /* ---------- enhanced indicator helpers ---------- */
 const sma = (arr, len) => arr.slice(-len).reduce((a, b) => a + b, 0) / len;
 
@@ -75,16 +77,21 @@ const atr = (ohlc, len) => {
 };
 
 const cvdSigma = (fills, lookback = 100) => {
-  if (!fills?.length) return { mean: 0, stdev: 1 };
+  if (!fills?.length) {
+    console.log('[DEBUG-CVD] No fills array, returning default.'); // ⬅️ NEW LOG
+    return { mean: 0, stdev: 1 };
+  }
   const deltas = [];
   for (let i = 0; i < fills.length - lookback; i += 1) {
     const slice = fills.slice(i, i + lookback);
     const net   = slice.reduce((s, f) => s + (f.side === 'buy' ? f.size : -f.size), 0);
     deltas.push(net);
   }
+  console.log('[DEBUG-CVD] Number of deltas calculated:', deltas.length); // ⬅️ NEW LOG
   if (!deltas.length) return { mean: 0, stdev: 1 };
   const mean   = deltas.reduce((a, b) => a + b, 0) / deltas.length;
   const stdev  = Math.sqrt(deltas.reduce((s, d) => s + (d - mean) ** 2, 0) / deltas.length) || 1;
+  console.log('[DEBUG-CVD] Calculated mean and stdev:', { mean, stdev }); // ⬅️ NEW LOG
   return { mean, stdev };
 };
 
@@ -129,11 +136,15 @@ export class StrategyEngine {
                    latest3m * 100).toFixed(2);
 
     /* micro-structure: CVD over last 30 prints */
-    const fills      = market.fills?.fills ?? [];
+    console.log('[DEBUG] Raw market.fills object:', market.fills); // ⬅️ NEW LOG
+    const fills = market.fills?.fills ?? [];
+    console.log('[DEBUG] Final fills array length:', fills.length); // ⬅️ NEW LOG
+
     const last30Net  = fills.slice(-30)
                             .reduce((s, f) => s + (f.side === 'buy' ? f.size : -f.size), 0);
     const { stdev }  = cvdSigma(fills, 100);
     const zScore     = stdev ? last30Net / stdev : 0;
+    console.log('[DEBUG] Final CVD Z-Score:', zScore.toFixed(2)); // ⬅️ NEW LOG
 
     /* closed trades */
     const last10 = fills.length
