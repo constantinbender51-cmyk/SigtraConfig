@@ -23,14 +23,16 @@ const CYCLE_MS = 180000;
 let sigCnt = 0;
 let tradeCnt = 0;
 let orderCnt = 0;
+// Track whether exit orders (stop loss/take profit) have been placed for the current position
+let exitOrdersPlaced = false;
 
-let firstBalance = null;     // balance when first flat
-let lastBalance = null;      // balance on last flat cycle
+let firstBalance = null;      // balance when first flat
+let lastBalance = null;       // balance on last flat cycle
 let curBalance = null;
 
-const returns = [];          // daily % returns
-const pnls = [];             // closed-trade PnLs
-const equity = [];           // balance history for DD
+const returns = [];           // daily % returns
+const pnls = [];              // closed-trade PnLs
+const equity = [];            // balance history for DD
 
 /* ---------- helpers ---------- */
 
@@ -149,26 +151,52 @@ async function cycle() {
             log.info(`Daily return recorded. Returns array length: ${returns.length}`);
         }
 
-        const open = market.positions?.openPositions?.filter(p => p.symbol === PAIR) || [];
+        const openPositions = market.positions?.openPositions?.filter(p => p.symbol === PAIR) || [];
+        // Check if there are any open orders related to our trading pair that might be pending.
+        const openOrders = market.openOrders?.openOrders?.filter(o => o.symbol === PAIR) || [];
 
-        if (!open.length && lastBalance !== null) {
+        // Condition 1: Position was just closed.
+        if (!openPositions.length && lastBalance !== null) {
             const pnl = curBalance - firstBalance;
             pnls.push(pnl);
             log.info(`Position closed. Realized PnL: ${pnl} USD`);
             recordStats();
-            lastBalance = curBalance; 
+            lastBalance = curBalance;
+            // Reset the flag for exit orders when the position is closed.
+            exitOrdersPlaced = false;
         }
 
-        if (firstBalance === null && !open.length) {
+        if (firstBalance === null && !openPositions.length) {
             firstBalance = lastBalance = curBalance;
             log.metric('initial_balance', firstBalance, 'USD');
         }
 
-        if (open.length) {
-            log.info('Position open; skipping trading logic.');
+        // Condition 2: A position is open. We need to manage exits.
+        if (openPositions.length) {
+            log.info(`Position open; checking for stop-loss and take-profit orders.`);
+            // If the position exists, but exit orders haven't been placed yet, place them now.
+            // This handles partial fills from the previous cycle.
+            if (!exitOrdersPlaced) {
+                 const params = risk.calculateTradeParameters(market, { signal: openPositions[0].side });
+                 // Ensure we have valid params before trying to place orders
+                 if (params) {
+                    await exec.placeExitOrders({
+                        pair: PAIR,
+                        params,
+                        filledSize: openPositions[0].size,
+                    });
+                    exitOrdersPlaced = true;
+                    log.metric('order_cnt', ++orderCnt);
+                 } else {
+                     log.warn("Could not calculate valid exit parameters. Skipping exit order placement.");
+                 }
+            } else {
+                log.info('Exit orders are already in place for the current position.');
+            }
             return;
         }
 
+        // Condition 3: No position is open. Look for a new signal to enter.
         let signal;
         try {
             log.info('Generating trading signal...');
@@ -181,19 +209,20 @@ async function cycle() {
 
         if (signal.signal !== 'HOLD' && signal.confidence >= MIN_CONF) {
             log.info(`Signal generated: ${signal.signal}, Confidence: ${signal.confidence}. Signal meets confidence threshold of ${MIN_CONF}.`);
-            
+
             const params = risk.calculateTradeParameters(market, signal);
 
             if (params) {
-                log.info(`Trade parameters calculated successfully. Quantity: ${params.volume}, Stop Loss: ${params.stopLoss}, Take Profit: ${params.takeProfit}`);
+                log.info(`Trade parameters calculated successfully. Quantity: ${params.volume}`);
                 log.metric('trade_cnt', ++tradeCnt);
                 const lastPrice = market.ohlc.at(-1).close;
                 try {
-                    await exec.placeOrder({ signal: signal.signal, pair: PAIR, params, lastPrice });
-                    log.metric('order_cnt', ++orderCnt);
-                    log.info('Order placed successfully.');
+                    // Refactored: We now only place the entry order. Exits are handled in the next cycle.
+                    await exec.placeEntryOrder({ signal: signal.signal, pair: PAIR, params, lastPrice });
+                    // No need to set exitOrdersPlaced to true here, as exits are not yet placed.
+                    log.info('Entry order placed successfully. Awaiting fills...');
                 } catch (orderError) {
-                    log.error('Failed to place order.', orderError);
+                    log.error('Failed to place entry order.', orderError);
                 }
             } else {
                 log.warn('Could not calculate valid trade parameters. Skipping trade.');
