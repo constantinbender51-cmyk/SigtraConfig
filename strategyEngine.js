@@ -5,7 +5,7 @@ import { log } from './logger.js';
 
 const BOT_START_TIME = new Date().toISOString();
 
-/* ---------- unchanged helpers ---------- */
+/* ---------- helpers ---------- */
 const readLast10ClosedTradesFromFile = () => {
   try {
     return JSON.parse(fs.readFileSync('./trades.json', 'utf8'))
@@ -17,13 +17,12 @@ const readLast10ClosedTradesFromFile = () => {
   }
 };
 
-// New helper function to read all fills from the historical data file.
 const readAllFillsFromFile = () => {
   try {
     const trades = JSON.parse(fs.readFileSync('./trades.json', 'utf8'));
-    // Flatten the fills from all closed trades into a single array.
-    const allFills = trades.flatMap(trade => trade.fills || []);
-    return allFills;
+    // Flatten the fills from all trades into a single array.
+    // NOTE: The `buildLast10ClosedFromRawFills` function assumes fills exist on trades.
+    return trades.flatMap(trade => trade.fills || []);
   } catch (e) {
     console.log(`[WARN] Failed to read all fills from file: ${e.message}`);
     return [];
@@ -31,21 +30,54 @@ const readAllFillsFromFile = () => {
 };
 
 function buildLast10ClosedFromRawFills(rawFills, n = 10) {
-  // This function body was not provided in the original code, but this is a placeholder
-  // implementation to show how it would process fills into closed trades.
-  const trades = [];
-  let currentTrade = null;
-  for (const fill of rawFills) {
-    if (!currentTrade) {
-      currentTrade = { entryPrice: fill.price, entryTime: fill.timestamp, direction: fill.side, size: fill.size };
-    } else if (fill.side !== currentTrade.direction) {
-      currentTrade.exitTime = fill.timestamp;
-      currentTrade.exitPrice = fill.price;
-      trades.push(currentTrade);
-      currentTrade = null; // Start a new potential trade
+  if (!Array.isArray(rawFills) || rawFills.length === 0) return [];
+
+  // 1️⃣  discard everything earlier than bot launch
+  const eligible = rawFills.filter(
+    f => new Date(f.fillTime) >= new Date(BOT_START_TIME)
+  );
+  console.log('[FIFO-DEBUG] after start-time filter =', eligible.length);
+
+  if (eligible.length === 0) return [];
+
+  const fills = [...eligible].reverse(); // oldest→newest
+  const queue = [];
+  const closed = [];
+
+  // 2️⃣  rest of FIFO logic unchanged …
+  for (const f of fills) {
+    const side = f.side === 'buy' ? 'LONG' : 'SHORT';
+    if (!queue.length || queue.at(-1).side === side) {
+      queue.push({ side, entryTime: f.fillTime, entryPrice: f.price, size: f.size });
+      continue;
+    }
+
+    let remaining = f.size;
+    while (remaining > 0 && queue.length && queue[0].side !== side) {
+      const open = queue.shift();
+      const match = Math.min(remaining, open.size);
+      const pnl = (f.price - open.entryPrice) * match * (open.side === 'LONG' ? 1 : -1);
+      closed.push({
+        side: open.side,
+        entryTime: open.entryTime,
+        entryPrice: open.entryPrice,
+        exitTime: f.fillTime,
+        exitPrice: f.price,
+        size: match,
+        pnl
+      });
+      remaining -= match;
+      open.size -= match;
+      if (open.size > 0) queue.unshift(open);
+    }
+
+    if (remaining > 0) {
+      queue.push({ side, entryTime: f.fillTime, entryPrice: f.price, size: remaining });
     }
   }
-  return trades.filter(t => t.exitTime).slice(-n);
+
+  const last10 = closed.slice(-n).reverse();
+  return last10;
 }
 
 /* ---------- enhanced indicator helpers ---------- */
@@ -116,7 +148,7 @@ export class StrategyEngine {
     const idr24 = ((Math.max(...today.map(c => c.high)) - Math.min(...today.map(c => c.low))) /
                    latest3m * 100).toFixed(2);
 
-    // This is the core change: use historical fills if live data is not present.
+    // This is the core change to fix back-testing mode.
     const fills = market.fills?.fills?.length > 0
         ? market.fills.fills
         : readAllFillsFromFile();
@@ -129,7 +161,7 @@ export class StrategyEngine {
     
     // Updated logs to be more clear about the data source.
     if (fills.length > 0) {
-      console.log(`[INFO] Using historical fills for CVD calculation. Fills count: ${fills.length}`);
+      console.log(`[INFO] Using a fills count of ${fills.length} for CVD calculation.`);
     } else {
       console.log(`[INFO] No fills data found. CVD will be zero.`);
     }
@@ -233,4 +265,4 @@ last10=${JSON.stringify(last10)}
   _fail(reason) {
     return { signal: 'HOLD', confidence: 0, stop_loss_distance_in_usd: 0, take_profit_distance_in_usd: 0, reason };
   }
-}
+      }
