@@ -33,6 +33,10 @@ export class ExecutionHandler {
         
         // Log the received parameters for debugging
         console.log(`${size} SIZE`);
+        console.log(`${stopLoss} SIZE`);
+        console.log(`${takeProfit} SIZE`);
+        console.log(`${pair} SIZE`);
+        console.log(`${lastPrice}`);
         log.info('Received trade details for order placement.', { signal, pair, size, stopLoss, takeProfit, lastPrice });
 
         if (!['LONG', 'SHORT'].includes(signal) || !pair || !size || !stopLoss || !takeProfit || !lastPrice) {
