@@ -78,7 +78,7 @@ export class ExecutionHandler {
             // Step 2: Wait for 1 minute before placing the next orders.
             // ----------------------------------------------------
             await new Promise(resolve => setTimeout(resolve, size*100*60000));
-            console.log("One-minute delay complete. Proceeding with protection orders.");
+            console.log(`${size*100}-minute delay complete. Proceeding with protection orders.`);
 
             // ----------------------------------------------------
             // Step 3: Prepare and send the stop-loss and take-profit orders.
