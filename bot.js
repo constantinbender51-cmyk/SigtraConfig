@@ -95,8 +95,8 @@ async function placeInitialDebugOrder() {
         // Define trade parameters for the debug order
         // NOTE: These are hardcoded for debugging purposes.
         const size = 1; // 1 unit of the pair
-        const stopLossOffset = 5000; // hardcoded offset of 50 for debugging
-        const takeProfitOffset = 15000; // hardcoded offset of 150 for debugging
+        const stopLossOffset = 50; // hardcoded offset of 50 for debugging
+        const takeProfitOffset = 150; // hardcoded offset of 150 for debugging
 
         const params = {
             size,
@@ -111,13 +111,13 @@ async function placeInitialDebugOrder() {
 
     } catch (e) {
         log.error('An error occurred while placing the debug order:', e.message);
-        log.debug('Full error object:', e);
+        log.error('Full error object:', e);
     }
 }
 
 // NOTE: Uncomment the line below to place the debug order on startup.
 // It is intended to be used for a single run and then removed.
-placeInitialDebugOrder();
+// placeInitialDebugOrder();
 
 
 /* ---------- trading cycle ---------- */
@@ -150,7 +150,7 @@ async function cycle() {
 
         } catch (dataError) {
             log.error('Failed to fetch and process market data:', dataError.message);
-            log.debug('Full data fetch error object:', dataError);
+            log.error('Full data fetch error object:', dataError);
             return; // Skip the rest of the cycle if data fetch fails
         }
 
@@ -173,7 +173,7 @@ async function cycle() {
             log.info(`Generated signal: ${signal.signal}, Confidence: ${signal.confidence}`);
         } catch (signalError) {
             log.error('Failed to generate trading signal:', signalError.message);
-            log.debug('Full signal generation error object:', signalError);
+            log.error('Full signal generation error object:', signalError);
             return;
         }
 
@@ -189,7 +189,7 @@ async function cycle() {
                     log.info('Order placed successfully.');
                 } catch (orderError) {
                     log.error('Failed to place order:', orderError.message);
-                    log.debug('Full order placement error object:', orderError);
+                    log.error('Full order placement error object:', orderError);
                 }
             } else {
                 log.warn('Could not calculate valid trade parameters. Skipping trade.');
@@ -199,7 +199,7 @@ async function cycle() {
         }
     } catch (e) {
         log.error('An unexpected error occurred during the trading cycle:', e.message);
-        log.debug('Full unexpected error object:', e);
+        log.error('Full unexpected error object:', e);
     } finally {
         log.info('--- cycle finished ---');
     }
