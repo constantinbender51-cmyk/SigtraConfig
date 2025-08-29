@@ -136,8 +136,6 @@ async function cycle() {
                     await logTrade(closedTrade);
                     lastTradeDetails = null; // Reset the last trade details
                     log.info(`New balance: ${market.balance.toFixed(2)} USD.`);
-                } else {
-                    log.info(`New balance: ${market.balance.toFixed(2)} USD.`);
                 }
                 wasPositionOpen = false;
             }
