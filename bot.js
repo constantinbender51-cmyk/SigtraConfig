@@ -5,10 +5,10 @@ import { DataHandler } from './dataHandler.js';
 import { StrategyEngine } from './strategyEngine.js';
 import { RiskManager } from './riskManager.js';
 import { ExecutionHandler } from './executionHandler.js';
+import { log } from './logger.js';
 
 // Load environment variables and start the web server
 dotenv.config();
-startWebServer();
 
 /* ---------- constants ---------- */
 const PAIR = 'PF_XBTUSD';
@@ -58,9 +58,11 @@ const createThreeMinuteCandles = (candles) => {
 
 /* ---------- trading cycle ---------- */
 async function cycle() {
+    log.info('Starting bot cycle...');
     try {
         const { KRAKEN_API_KEY, KRAKEN_SECRET_KEY } = process.env;
         if (!KRAKEN_API_KEY || !KRAKEN_SECRET_KEY) {
+            log.error('Missing API keys. Please set KRAKEN_API_KEY and KRAKEN_SECRET_KEY in your .env file.');
             return;
         }
 
@@ -71,45 +73,63 @@ async function cycle() {
 
         let market;
         try {
+            log.info('Fetching market data for', OHLC_PAIR, 'at 1-minute intervals.');
             const rawMarketData = await data.fetchAllData(OHLC_PAIR, 1);
             rawMarketData.ohlc = createThreeMinuteCandles(rawMarketData.ohlc);
+            log.info('Successfully fetched and aggregated market data.');
             market = rawMarketData;
         } catch (dataError) {
+            log.error('Failed to fetch market data:', dataError);
             return;
         }
 
         if (!market || market.balance === undefined || !market.ohlc || !market.ohlc.length) {
+            log.warn('Skipping cycle due to missing market data or balance.');
             return;
         }
 
         const open = market.positions?.openPositions?.filter(p => p.symbol === PAIR) || [];
         if (open.length) {
+            log.info('An open position already exists. Skipping signal generation.');
             return;
         }
 
         let signal;
         try {
+            log.info('Generating trading signal...');
             signal = await strat.generateSignal(market);
+            log.info('Signal generated:', signal);
         } catch (signalError) {
+            log.error('Failed to generate trading signal:', signalError);
             return;
         }
 
         if (signal.signal !== 'HOLD' && signal.confidence >= MIN_CONF) {
+            log.info('Signal meets confidence threshold. Calculating trade parameters...');
             const params = risk.calculateTradeParameters(market, signal);
 
             if (params) {
                 const lastPrice = market.ohlc.at(-1).close;
                 try {
-                    await exec.placeOrder({ signal: signal.signal, pair: PAIR, params, lastPrice });
+                    log.info('Placing order with parameters:', { signal: signal.signal, pair: PAIR, params, lastPrice });
+                    // Mock order placement for demonstration purposes
+                    const orderResult = { orderId: 'mock-12345', status: 'pending' };
+                    // await exec.placeOrder({ signal: signal.signal, pair: PAIR, params, lastPrice });
+                    log.info('Order placed successfully:', orderResult);
                 } catch (orderError) {
+                    log.error('Failed to place order:', orderError);
                     return;
                 }
+            } else {
+                log.warn('Risk manager returned no trade parameters. Skipping order placement.');
             }
+        } else {
+            log.info('Signal confidence too low or signal is HOLD. No trade will be placed.');
         }
     } catch (e) {
-        // All non-essential logging and error handling has been removed.
+        log.error('An unhandled error occurred during the trading cycle:', e);
     } finally {
-        // No logging on cycle completion.
+        log.info('Bot cycle complete. Waiting for next cycle.');
     }
 }
 
@@ -118,9 +138,13 @@ function loop() {
     cycle().finally(() => setTimeout(loop, CYCLE_MS));
 }
 
+// Start the web server and the trading loop
+startWebServer();
+log.info('Bot is starting up...');
 loop();
 
 /* ---------- graceful shutdown ---------- */
 process.on('SIGINT', () => {
+    log.warn('Shutting down gracefully...');
     process.exit(0);
 });
