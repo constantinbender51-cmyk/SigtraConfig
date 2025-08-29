@@ -23,7 +23,13 @@ export function startWebServer() {
         try {
             // Read the log file and process its contents
             const fileContent = fs.readFileSync(logFilePath, 'utf8');
-            const lines = fileContent.split('\n').filter(Boolean);
+            const lines = fileContent.split('\n').filter(Boolean); // Filter out any empty lines
+            
+            // Handle the case of an empty log file
+            if (lines.length === 0) {
+                return res.json([]);
+            }
+            
             const logs = lines.map(line => {
                 try {
                     return JSON.parse(line);
