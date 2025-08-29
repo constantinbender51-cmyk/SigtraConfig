@@ -95,7 +95,7 @@ async function placeInitialDebugOrder() {
 
         // Define trade parameters for the debug order
         // NOTE: These are hardcoded for debugging purposes.
-        const size = 0.05; // The trade size is now 0.01.
+        const size = 0.1; // The trade size is now 0.01.
         const stopLossOffset = 5000; // Hardcoded offset for debugging, at least a few thousand USD away.
         const takeProfitOffset = 5000; // Hardcoded offset for debugging, at least a few thousand USD away.
 
