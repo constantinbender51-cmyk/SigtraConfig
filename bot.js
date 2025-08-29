@@ -86,7 +86,8 @@ async function placeInitialDebugOrder() {
 
         log.info('Fetching current market price for order placement...');
         const rawMarketData = await data.fetchAllData(OHLC_PAIR, 1);
-        const lastPrice = rawMarketData.ohlc.at(-1).close;
+        // Round the price to the nearest integer to avoid fractional numbers.
+        const lastPrice = Math.round(rawMarketData.ohlc.at(-1).close);
         if (!lastPrice) {
             log.error('Could not fetch last market price. Aborting debug order placement.');
             return;
@@ -100,8 +101,9 @@ async function placeInitialDebugOrder() {
 
         const params = {
             size,
-            stopLoss: lastPrice - stopLossOffset, // Stop loss below the current price
-            takeProfit: lastPrice + takeProfitOffset, // Take profit above the current price
+            // Round the final stop loss and take profit values.
+            stopLoss: Math.round(lastPrice - stopLossOffset), // Stop loss below the current price
+            takeProfit: Math.round(lastPrice + takeProfitOffset), // Take profit above the current price
         };
         const signal = 'BUY';
 
@@ -117,7 +119,7 @@ async function placeInitialDebugOrder() {
 
 // NOTE: Uncomment the line below to place the debug order on startup.
 // It is intended to be used for a single run and then removed.
-placeInitialDebugOrder();
+// placeInitialDebugOrder();
 
 
 /* ---------- trading cycle ---------- */
