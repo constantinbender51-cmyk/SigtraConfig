@@ -98,8 +98,13 @@ export function startWebServer() {
                     className = 'text-blue-400';
                 }
 
+                // Corrected line to combine the main message and the extra details
+                const fullMessage = log.extra && log.extra.length > 0
+                    ? [log.msg, ...log.extra].join(' ')
+                    : log.msg;
+
                 logLine.className = \`\${className}\`;
-                logLine.textContent = \`[\${new Date(log.ts).toLocaleTimeString()}] [\${log.level.padEnd(5)}] \${log.msg}\`;
+                logLine.textContent = \`[\${new Date(log.ts).toLocaleTimeString()}] [\${log.level.padEnd(5)}] \${fullMessage}\`;
                 logContainer.appendChild(logLine);
             });
             logContainer.scrollTop = logContainer.scrollHeight;
