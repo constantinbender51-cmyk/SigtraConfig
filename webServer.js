@@ -151,6 +151,9 @@ export function startWebServer() {
           <td>${trade.size}</td>
           <td>${trade.side}</td>
           <td>${trade.price}</td>
+          <td>${trade.stopLoss !== undefined ? trade.stopLoss : 'N/A'}</td>
+          <td>${trade.takeProfit !== undefined ? trade.takeProfit : 'N/A'}</td>
+          <td>${trade.pnl !== undefined ? trade.pnl.toFixed(2) : 'Pending...'}</td>
         </tr>
       `).join('');
 
@@ -174,7 +177,10 @@ export function startWebServer() {
               <th>Date</th>
               <th>Size</th>
               <th>Side</th>
-              <th>Price</th>
+              <th>Entry Price</th>
+              <th>Stop Loss</th>
+              <th>Take Profit</th>
+              <th>PnL</th>
             </tr>
           </thead>
           <tbody>
