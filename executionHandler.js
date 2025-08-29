@@ -126,12 +126,21 @@ export class ExecutionHandler {
 
             console.log(`Protection Orders API Response received: ${JSON.stringify(protectionResponse, null, 2)}`);
 
-            if (protectionResponse.result === 'success') {
-                console.log("✅ Successfully placed protection orders!");
-            } else {
-                log.error("❌ Failed to place protection orders. API response was not successful.", { apiResponse: protectionResponse });
-            }
+            // Check if all orders in the batch were successfully submitted
+            const allOrdersSuccessful = protectionResponse.status && protectionResponse.status.every(orderStatus => orderStatus.status === 'placed');
 
+            if (protectionResponse.result === 'success' && allOrdersSuccessful) {
+                log.info("✅ Successfully placed protection orders!");
+            } else {
+                log.error("❌ Failed to place one or more protection orders.", { apiResponse: protectionResponse });
+            }
+            
+            // Log the status of each individual order
+            if (protectionResponse.status) {
+              protectionResponse.status.forEach((orderStatus, index) => {
+                  log.info(`Status for order ${index + 1} (tag: ${orderStatus.order_tag}): ${orderStatus.status}`);
+              });
+            }
             return protectionResponse;
 
         } catch (error) {
