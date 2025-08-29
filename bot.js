@@ -74,10 +74,10 @@ async function cycle() {
         let market;
         try {
             log.info('Data fetch stage:');
-            log.info('Fetching market data for', OHLC_PAIR, 'at 1-minute intervals.');
+            log.info('Fetching 1-minute candles to create 3-minute candles for trading...');
             const rawMarketData = await data.fetchAllData(OHLC_PAIR, 1);
             rawMarketData.ohlc = createThreeMinuteCandles(rawMarketData.ohlc);
-            log.info('Successfully fetched and aggregated market data.');
+            log.info('Successfully fetched and aggregated market data to a 3-minute timeframe.');
             market = rawMarketData;
         } catch (dataError) {
             log.error('Failed to fetch market data:', dataError);
