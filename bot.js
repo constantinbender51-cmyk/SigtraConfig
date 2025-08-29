@@ -95,7 +95,7 @@ async function placeInitialDebugOrder() {
 
         // Define trade parameters for the debug order
         // NOTE: These are hardcoded for debugging purposes.
-        const size = 1; // 1 unit of the pair
+        const size = 0.01; // The trade size is now 0.01.
         const stopLossOffset = 5000; // Hardcoded offset for debugging, at least a few thousand USD away.
         const takeProfitOffset = 5000; // Hardcoded offset for debugging, at least a few thousand USD away.
 
@@ -105,7 +105,6 @@ async function placeInitialDebugOrder() {
             stopLoss: Math.round(lastPrice - stopLossOffset), // Stop loss below the current price
             takeProfit: Math.round(lastPrice + takeProfitOffset), // Take profit above the current price
         };
-        // The signal is now 'LONG' to pass the new validation.
         const signal = 'LONG';
 
         log.info('Debug order parameters:', params); // Log the parameters object explicitly
