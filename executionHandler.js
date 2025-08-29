@@ -126,10 +126,7 @@ export class ExecutionHandler {
 
             console.log(`Protection Orders API Response received: ${JSON.stringify(protectionResponse, null, 2)}`);
 
-            // Check if all orders in the batch were successfully submitted
-            const allOrdersSuccessful = protectionResponse.status && protectionResponse.status.every(orderStatus => orderStatus.status === 'placed');
-
-            if (protectionResponse.result === 'success' && allOrdersSuccessful) {
+            if (protectionResponse.result === 'success') {
                 log.info("✅ Successfully placed protection orders!");
             } else {
                 log.error("❌ Failed to place one or more protection orders.", { apiResponse: protectionResponse });
