@@ -17,6 +17,9 @@ const INTERVAL = 3;
 const MIN_CONF = 25;
 const CYCLE_MS = 180_000;
 
+/* ---------- state ---------- */
+let wasPositionOpen = true; // Initialize to true so the balance is logged on the first run
+
 /* ---------- helpers ---------- */
 
 /**
@@ -87,39 +90,46 @@ async function cycle() {
         }
 
         const open = market.positions?.openPositions?.filter(p => p.symbol === PAIR) || [];
+
         if (open.length) {
             log.info('An open position already exists. Skipping signal generation.');
-            return;
-        }
-
-        let signal;
-        try {
-            signal = await strat.generateSignal(market);
-            log.info(`Signal generated: ${signal.signal} with confidence ${signal.confidence}.`);
-        } catch (signalError) {
-            log.error('Failed to generate trading signal:', signalError);
-            return;
-        }
-
-        if (signal.signal !== 'HOLD' && signal.confidence >= MIN_CONF) {
-            const params = risk.calculateTradeParameters(market, signal);
-
-            if (params) {
-                const lastPrice = market.ohlc.at(-1).close;
-                try {
-                    // Mock order placement for demonstration purposes
-                    const orderResult = { orderId: 'mock-12345', status: 'pending' };
-                    // await exec.placeOrder({ signal: signal.signal, pair: PAIR, params, lastPrice });
-                    log.info(`Order placed for ${PAIR}: ${signal.signal}.`);
-                } catch (orderError) {
-                    log.error('Failed to place order:', orderError);
-                    return;
+            wasPositionOpen = true; // Set the flag to true because a position is currently open
+        } else {
+            // Log the balance here, but only if the flag indicates a position was just closed or it's the first run
+            if (wasPositionOpen) {
+                log.info(`Updated Balance: ${market.balance.toFixed(2)} USD.`);
+                wasPositionOpen = false; // Reset the flag to prevent logging in consecutive "no position" cycles
+            }
+            
+            let signal;
+            try {
+                signal = await strat.generateSignal(market);
+                log.info(`Signal generated: ${signal.signal} with confidence ${signal.confidence}.`);
+            } catch (signalError) {
+                log.error('Failed to generate trading signal:', signalError);
+                return;
+            }
+    
+            if (signal.signal !== 'HOLD' && signal.confidence >= MIN_CONF) {
+                const params = risk.calculateTradeParameters(market, signal);
+    
+                if (params) {
+                    const lastPrice = market.ohlc.at(-1).close;
+                    try {
+                        // Mock order placement for demonstration purposes
+                        const orderResult = { orderId: 'mock-12345', status: 'pending' };
+                        // await exec.placeOrder({ signal: signal.signal, pair: PAIR, params, lastPrice });
+                        log.info(`Order placed for ${PAIR}: ${signal.signal}.`);
+                    } catch (orderError) {
+                        log.error('Failed to place order:', orderError);
+                        return;
+                    }
+                } else {
+                    log.warn('Risk manager returned no trade parameters. Skipping order placement.');
                 }
             } else {
-                log.warn('Risk manager returned no trade parameters. Skipping order placement.');
+                log.info('Signal confidence too low or signal is HOLD. No trade will be placed.');
             }
-        } else {
-            log.info('Signal confidence too low or signal is HOLD. No trade will be placed.');
         }
     } catch (e) {
         log.error('An unhandled error occurred during the trading cycle:', e);
