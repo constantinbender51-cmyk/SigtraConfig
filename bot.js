@@ -18,7 +18,6 @@ const OHLC_PAIR = 'XBTUSD';
 const INTERVAL = 3;
 const MIN_CONF = 25;
 const CYCLE_MS = 180_000;
-const ORDER_CHECK_INTERVAL_MS = 60000; // 60 seconds
 
 /* ---------- state ---------- */
 let sigCnt = 0;
@@ -87,6 +86,7 @@ async function placeInitialDebugOrder() {
 
         log.info('Fetching current market price for order placement...');
         const rawMarketData = await data.fetchAllData(OHLC_PAIR, 1);
+        // The lastPrice is NOT rounded, keeping its fractional value.
         const lastPrice = rawMarketData.ohlc.at(-1).close;
         if (!lastPrice) {
             log.error('Could not fetch last market price. Aborting debug order placement.');
@@ -94,56 +94,32 @@ async function placeInitialDebugOrder() {
         }
 
         // Define trade parameters for the debug order
-        const size = 0.1; // The trade size is now 0.1
-        const stopLossOffset = 5000;
-        const takeProfitOffset = 5000;
+        // NOTE: These are hardcoded for debugging purposes.
+        const size = 0.1; // The trade size is now 0.1.
+        const stopLossOffset = 5000; // Hardcoded offset for debugging, at least a few thousand USD away.
+        const takeProfitOffset = 5000; // Hardcoded offset for debugging, at least a few thousand USD away.
 
         const params = {
             size,
-            stopLoss: Math.round(lastPrice - stopLossOffset),
-            takeProfit: Math.round(lastPrice + takeProfitOffset),
+            // Only the stop loss and take profit are rounded.
+            stopLoss: Math.round(lastPrice - stopLossOffset), // Stop loss below the current price
+            takeProfit: Math.round(lastPrice + takeProfitOffset), // Take profit above the current price
         };
         const signal = 'LONG';
 
-        log.info('Debug order parameters:', params);
-        
-        // Assume placeOrder returns an orderId for status tracking
-        const orderId = await exec.placeOrder({ signal, pair: PAIR, params, lastPrice });
-        log.info(`Order placed successfully with ID: ${orderId}. Waiting for it to fill...`);
-
-        // Wait for the order to be filled before placing stop loss and take profit
-        let orderStatus = 'open';
-        while (orderStatus !== 'filled') {
-            await new Promise(resolve => setTimeout(resolve, ORDER_CHECK_INTERVAL_MS));
-            
-            // This method would be a part of ExecutionHandler, checking the order status via API
-            // For now, it's a placeholder. In a real-world scenario, you'd get the actual status.
-            log.info(`Checking status of order ${orderId}...`);
-            // Simulating API response - replace with actual API call
-            // const statusResponse = await exec.getOrderStatus(orderId);
-            // orderStatus = statusResponse.status;
-
-            // Placeholder for demonstration
-            orderStatus = Math.random() > 0.5 ? 'filled' : 'open';
-            if (orderStatus !== 'filled') {
-                log.info('Order not yet filled. Waiting another 60 seconds.');
-            }
-        }
-
-        log.info(`Order ${orderId} is now filled. Placing stop loss and take profit.`);
-        // Place stop loss and take profit orders after the main order is filled
-        // This method would also be part of the ExecutionHandler
-        // await exec.placeStopLossAndTakeProfit({ signal, pair: PAIR, params, lastPrice, parentOrderId: orderId });
-        log.info('Stop loss and take profit orders placed successfully.');
+        log.info('Debug order parameters:', params); // Log the parameters object explicitly
+        await exec.placeOrder({ signal, pair: PAIR, params, lastPrice });
+        log.info('Debug order placed successfully.');
 
     } catch (e) {
-        log.error('An error occurred during the initial debug order placement workflow:', e.message);
+        log.error('An error occurred while placing the debug order:', e.message);
         log.error('Full error object:', e);
     }
 }
 
 // The debug order placement is now active.
-placeInitialDebugOrder();
+await placeInitialDebugOrder();
+
 
 /* ---------- trading cycle ---------- */
 async function cycle() {
@@ -164,15 +140,19 @@ async function cycle() {
         let market;
         try {
             log.info('Fetching market data (1-minute interval)...');
+            // Fetch 1-minute data, which is a supported interval
             const rawMarketData = await data.fetchAllData(OHLC_PAIR, 1);
+
+            // Reconstruct the OHLC data from the raw 1-minute candles
             rawMarketData.ohlc = createThreeMinuteCandles(rawMarketData.ohlc);
+
             log.info('Market data fetched and aggregated successfully.');
             market = rawMarketData;
 
         } catch (dataError) {
             log.error('Failed to fetch and process market data:', dataError.message);
             log.error('Full data fetch error object:', dataError);
-            return;
+            return; // Skip the rest of the cycle if data fetch fails
         }
 
         if (!market || market.balance === undefined || !market.ohlc || !market.ohlc.length) {
@@ -202,6 +182,7 @@ async function cycle() {
             log.info(`Signal meets confidence threshold (${MIN_CONF}). Calculating trade parameters...`);
             const params = risk.calculateTradeParameters(market, signal);
 
+            // Add a log to show the calculated trade parameters
             log.info('Calculated trade parameters:', params);
 
             if (params) {
