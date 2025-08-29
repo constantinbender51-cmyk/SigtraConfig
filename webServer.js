@@ -1,56 +1,119 @@
-// webServer.js
 import express from 'express';
+import fs from 'fs';
+import path from 'path';
 
 const PORT = process.env.PORT || 3000;
+const logFilePath = path.join(process.cwd(), 'logs', 'metrics.ndjson');
 
 // ----------------------------------------
 // Express setup
 // ----------------------------------------
 export function startWebServer() {
-  const app = express();
+    const app = express();
 
-  // ---------- MAIN PAGE ----------
-  app.get('/', (req, res) => {
-    const html = `
+    // API endpoint to fetch the logs
+    app.get('/api/logs', (req, res) => {
+        if (!fs.existsSync(logFilePath)) {
+            return res.json([]);
+        }
+
+        try {
+            const fileContent = fs.readFileSync(logFilePath, 'utf8');
+            const lines = fileContent.split('\n').filter(Boolean);
+            const logs = lines.map(line => {
+                try {
+                    return JSON.parse(line);
+                } catch (e) {
+                    console.error('Failed to parse log line:', line);
+                    return null;
+                }
+            }).filter(Boolean);
+            res.json(logs);
+        } catch (error) {
+            console.error('Error reading log file:', error);
+            res.status(500).json({ error: 'Failed to read logs.' });
+        }
+    });
+
+    // Main page to display the live logs
+    app.get('/', (req, res) => {
+        const html = `
       <!DOCTYPE html>
-      <html>
+      <html lang="en">
       <head>
         <meta charset="utf-8"/>
-        <title>SigtraConfig</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Sigtra Live Logs</title>
+        <script src="https://cdn.tailwindcss.com"></script>
         <style>
+          @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
           body {
-            font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            background-color: #f0f2f5;
-            color: #333;
-            margin: 0;
-          }
-          .container {
-            text-align: center;
-            padding: 2rem;
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
-          }
-          h1 {
-            font-size: 2.5rem;
-            font-weight: 700;
-            color: #007bff;
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+            color: #1f2937;
           }
         </style>
       </head>
-      <body>
-        <div class="container">
-          <h1>SigtraConfig</h1>
+      <body class="bg-gray-100 min-h-screen flex flex-col items-center p-4">
+        <div class="bg-white rounded-xl shadow-lg p-6 w-full max-w-4xl">
+          <h1 class="text-3xl font-bold text-center text-blue-600 mb-4">Sigtra Live Logs</h1>
+          <p class="text-center text-gray-500 mb-6">Real-time feed of the trading bot's activity.</p>
+          <div id="log-container" class="bg-gray-800 text-gray-200 text-sm font-mono p-4 rounded-lg h-96 overflow-y-scroll space-y-2">
+            <p class="text-center text-gray-400">Loading logs...</p>
+          </div>
         </div>
+
+        <script>
+          const logContainer = document.getElementById('log-container');
+          
+          async function fetchLogs() {
+            try {
+              const response = await fetch('/api/logs');
+              if (!response.ok) {
+                throw new Error('Failed to fetch logs');
+              }
+              const logs = await response.json();
+              displayLogs(logs);
+            } catch (error) {
+              console.error(error);
+              logContainer.innerHTML = '<p class="text-center text-red-400">Error loading logs.</p>';
+            }
+          }
+
+          function displayLogs(logs) {
+            logContainer.innerHTML = '';
+            if (logs.length === 0) {
+                logContainer.innerHTML = '<p class="text-center text-gray-400">No logs to display yet...</p>';
+                return;
+            }
+
+            logs.forEach(log => {
+                const logLine = document.createElement('p');
+                let className = 'text-gray-200';
+                if (log.level === 'WARN') {
+                    className = 'text-yellow-400';
+                } else if (log.level === 'ERROR') {
+                    className = 'text-red-400';
+                } else if (log.level === 'INFO') {
+                    className = 'text-blue-400';
+                }
+
+                logLine.className = \`\${className}\`;
+                logLine.textContent = \`[\${new Date(log.ts).toLocaleTimeString()}] [\${log.level.padEnd(5)}] \${log.msg}\`;
+                logContainer.appendChild(logLine);
+            });
+            logContainer.scrollTop = logContainer.scrollHeight;
+          }
+
+          // Initial fetch and set up interval for periodic updates
+          fetchLogs();
+          setInterval(fetchLogs, 5000); // Refresh every 5 seconds
+        </script>
       </body>
       </html>`;
-    res.send(html);
-  });
+        res.send(html);
+    });
 
-  // ---------- START ----------
-  app.listen(PORT, () => {});
+    // ---------- START ----------
+    app.listen(PORT, () => {});
 }
