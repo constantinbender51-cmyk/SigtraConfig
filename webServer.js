@@ -13,11 +13,15 @@ export function startWebServer() {
 
     // API endpoint to fetch the logs
     app.get('/api/logs', (req, res) => {
+        // Check if the log directory and file exist
         if (!fs.existsSync(logFilePath)) {
+            // Log this event for debugging on the server
+            console.warn('Log file does not exist. Sending empty log array.');
             return res.json([]);
         }
 
         try {
+            // Read the log file and process its contents
             const fileContent = fs.readFileSync(logFilePath, 'utf8');
             const lines = fileContent.split('\n').filter(Boolean);
             const logs = lines.map(line => {
@@ -30,8 +34,10 @@ export function startWebServer() {
             }).filter(Boolean);
             res.json(logs);
         } catch (error) {
+            // This catches errors like file permission issues
             console.error('Error reading log file:', error);
-            res.status(500).json({ error: 'Failed to read logs.' });
+            // Send a 500 Internal Server Error status to the client
+            res.status(500).json({ error: 'Failed to read logs due to a server error.' });
         }
     });
 
@@ -70,13 +76,14 @@ export function startWebServer() {
             try {
               const response = await fetch('/api/logs');
               if (!response.ok) {
-                throw new Error('Failed to fetch logs');
+                // If the server returns a non-200 status, we'll get here.
+                throw new Error(\`Failed to fetch logs: \${response.status} \${response.statusText}\`);
               }
               const logs = await response.json();
               displayLogs(logs);
             } catch (error) {
               console.error(error);
-              logContainer.innerHTML = '<p class="text-center text-red-400">Error loading logs.</p>';
+              logContainer.innerHTML = \`<p class="text-center text-red-400">Error loading logs. Please check the server logs for details. (\${error.message})</p>\`;
             }
           }
 
@@ -98,9 +105,8 @@ export function startWebServer() {
                     className = 'text-blue-400';
                 }
 
-                // Corrected line to combine the main message and the extra details
                 const fullMessage = log.extra && log.extra.length > 0
-                    ? [log.msg, ...log.extra].join(' ')
+                    ? \`\${log.msg} \${log.extra.map(e => JSON.stringify(e)).join(' ')}\`
                     : log.msg;
 
                 logLine.className = \`\${className}\`;
