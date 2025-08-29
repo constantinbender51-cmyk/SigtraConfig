@@ -137,7 +137,7 @@ export class ExecutionHandler {
                   log.info(`Status for order ${index + 1} (tag: ${orderStatus.order_tag}): ${orderStatus.status}`);
               });
             }
-            return protectionResponse;
+            return entryResponse;
 
         } catch (error) {
             log.error("❌ CRITICAL ERROR in ExecutionHandler during order placement.", error);
