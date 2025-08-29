@@ -32,7 +32,7 @@ export class ExecutionHandler {
     async placeOrder({ signal, pair, params, lastPrice }) {
         const { size, stopLoss, takeProfit } = params;
 
-        console.log(`Received trade details for order placement:`, { signal, pair, size, stopLoss, takeProfit, lastPrice });
+        console.log(`Received trade details for order placement: ${JSON.stringify({ signal, pair, size, stopLoss, takeProfit, lastPrice }, null, 2)}`);
 
         if (!['LONG', 'SHORT'].includes(signal) || !pair || !size || !stopLoss || !takeProfit || !lastPrice) {
             // Log a specific error for invalid inputs
@@ -64,7 +64,7 @@ export class ExecutionHandler {
                 limitPrice: entryLimitPrice,
             };
 
-            console.log('Sending entry order to API. Payload:', entryOrderPayload);
+            console.log(`Sending entry order to API. Payload: ${JSON.stringify(entryOrderPayload, null, 2)}`);
             const entryResponse = await this.api.sendOrder(entryOrderPayload);
 
             if (entryResponse.result === 'success') {
@@ -120,11 +120,11 @@ export class ExecutionHandler {
                 ]
             };
 
-            console.log(`Sending batch order for stop-loss and take-profit. Payload:`, { payload: batchOrderPayload });
+            console.log(`Sending batch order for stop-loss and take-profit. Payload: ${JSON.stringify(batchOrderPayload, null, 2)}`);
 
             const protectionResponse = await this.api.batchOrder({ json: JSON.stringify(batchOrderPayload) });
 
-            console.log('Protection Orders API Response received:', { response: protectionResponse });
+            console.log(`Protection Orders API Response received: ${JSON.stringify(protectionResponse, null, 2)}`);
 
             if (protectionResponse.result === 'success') {
                 console.log("✅ Successfully placed protection orders!");
