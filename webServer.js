@@ -2,7 +2,6 @@
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
-import { log } from './logger.js';
 
 const PORT = process.env.PORT || 3000;
 const metricsFile = path.join(process.cwd(), 'logs', 'metrics.ndjson');
@@ -64,35 +63,43 @@ function getLatestMetrics() {
 export function startWebServer() {
   const app = express();
 
-  // ---------- ESSENTIALS ----------
+  // ---------- MAIN PAGE ----------
   app.get('/', (req, res) => {
-    const latest = getLatestMetrics();
-    const rows = Object.entries(latest)
-      .filter(([k]) => [
-        'realised_pnl','perc_gain','trade_count','win_rate','max_drawdown',
-        'sharpe_30d','uptime_minutes','slippage'
-      ].includes(k))
-      .map(([k,v]) => `<tr><td>${k}</td><td>${v.value} ${v.unit}</td></tr>`)
-      .join('');
-
     const html = `
       <!DOCTYPE html>
       <html>
       <head>
         <meta charset="utf-8"/>
-        <title>Essentials – Bot Performance</title>
-        <meta http-equiv="refresh" content="30">
-        <style>${css}</style>
+        <title>SigtraConfig</title>
+        <style>
+          body {
+            font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #f0f2f5;
+            color: #333;
+            margin: 0;
+          }
+          .container {
+            text-align: center;
+            padding: 2rem;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+          }
+          h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: #007bff;
+          }
+        </style>
       </head>
       <body>
-        <h1>Essentials</h1>
-        <a class="btn" href="/deep">🔍 Deep Dive</a>
-        <a class="btn" href="/logs">📄 Raw Logs</a>
-        <table>
-          <tr><th>Metric</th><th>Value</th></tr>
-          ${rows}
-        </table>
-        <p class="subtitle">Last updated: ${new Date().toLocaleTimeString()}</p>
+        <div class="container">
+          <h1>SigtraConfig</h1>
+        </div>
       </body>
       </html>`;
     res.send(html);
@@ -117,7 +124,7 @@ export function startWebServer() {
       </head>
       <body>
         <h1>Deep Dive – All Metrics</h1>
-        <a class="btn" href="/">📊 Essentials</a>
+        <a class="btn" href="/">📊 Home</a>
         <a class="btn" href="/logs">📄 Raw Logs</a>
         <table>
           <tr><th>Metric</th><th>Value</th></tr>
@@ -144,7 +151,7 @@ export function startWebServer() {
         </head>
         <body>
           <h1>Trading Bot Logs</h1>
-          <a class="btn" href="/">📊 Essentials</a>
+          <a class="btn" href="/">📊 Home</a>
           <a class="btn" href="/deep">🔍 Deep Dive</a>
           <pre>${data.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>
         </body>
@@ -154,6 +161,5 @@ export function startWebServer() {
   });
 
   // ---------- START ----------
-  app.listen(PORT, () => {
-  });
+  app.listen(PORT, () => {});
 }
