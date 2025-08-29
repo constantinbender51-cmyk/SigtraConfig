@@ -1,12 +1,12 @@
+// webServer.js
 import express from 'express';
-import fs from 'fs/promises';
+import fs from 'fs';
 import path from 'path';
 import { log } from './logger.js';
 
 const PORT = process.env.PORT || 3000;
 const metricsFile = path.join(process.cwd(), 'logs', 'metrics.ndjson');
-const humanLog   = path.join(process.cwd(), 'logs', 'trading-bot.log');
-const tradesFile = path.join(process.cwd(), 'trades.json');
+const humanLog    = path.join(process.cwd(), 'logs', 'trading-bot.log');
 
 // ----------------------------------------
 // Shared CSS (white & sleek)
@@ -37,7 +37,7 @@ const css = `
   .subtitle { color:#666; margin-top:1rem }
   @media (max-width:600px) {
     body { padding:.75rem }
-    h1  { font-size:1.5rem }
+    h1   { font-size:1.5rem }
     table th,td { padding:.75rem .5rem; font-size:1rem }
   }
 `;
@@ -47,12 +47,11 @@ const css = `
 // ----------------------------------------
 function getLatestMetrics() {
   let metrics = [];
-  try {
-    const data = fs.readFileSync(metricsFile, 'utf8');
-    metrics = data.split('\n').filter(Boolean).map(JSON.parse);
-  } catch (err) {
-    // File might not exist yet, which is fine
-    log.warn('Metrics file not found, starting with empty metrics.');
+  if (fs.existsSync(metricsFile)) {
+    metrics = fs.readFileSync(metricsFile, 'utf8')
+                .split('\n')
+                .filter(Boolean)
+                .map(JSON.parse);
   }
   const latest = {};
   metrics.forEach(m => { if (m.metric) latest[m.metric] = { value: m.value, unit: m.unit || '' }; });
@@ -88,7 +87,6 @@ export function startWebServer() {
       <body>
         <h1>Essentials</h1>
         <a class="btn" href="/deep">🔍 Deep Dive</a>
-        <a class="btn" href="/trades">📈 Trades</a>
         <a class="btn" href="/logs">📄 Raw Logs</a>
         <table>
           <tr><th>Metric</th><th>Value</th></tr>
@@ -120,7 +118,6 @@ export function startWebServer() {
       <body>
         <h1>Deep Dive – All Metrics</h1>
         <a class="btn" href="/">📊 Essentials</a>
-        <a class="btn" href="/trades">📈 Trades</a>
         <a class="btn" href="/logs">📄 Raw Logs</a>
         <table>
           <tr><th>Metric</th><th>Value</th></tr>
@@ -132,93 +129,28 @@ export function startWebServer() {
     res.send(html);
   });
 
-  // ---------- TRADES ----------
-  app.get('/trades', async (req, res) => {
-    let trades = [];
-    try {
-      const data = await fs.readFile(tradesFile, 'utf8');
-      trades = JSON.parse(data);
-    } catch (err) {
-      log.warn('Trades file not found. Displaying empty trade history.');
-      // The file may not exist yet, which is not an error for the user
-    }
-    
-    const rows = trades
-      .reverse() // Display most recent trades first
-      .map(trade => `
-        <tr>
-          <td>${new Date(trade.date).toLocaleString()}</td>
-          <td>${trade.size}</td>
-          <td>${trade.side}</td>
-          <td>${trade.price}</td>
-          <td>${trade.stopLoss !== undefined ? trade.stopLoss : 'N/A'}</td>
-          <td>${trade.takeProfit !== undefined ? trade.takeProfit : 'N/A'}</td>
-          <td>${trade.pnl !== undefined ? trade.pnl.toFixed(2) : 'Pending...'}</td>
-        </tr>
-      `).join('');
-
-    const html = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8"/>
-        <title>Trade History</title>
-        <meta http-equiv="refresh" content="30">
-        <style>${css}</style>
-      </head>
-      <body>
-        <h1>Trade History</h1>
-        <a class="btn" href="/">📊 Essentials</a>
-        <a class="btn" href="/deep">🔍 Deep Dive</a>
-        <a class="btn" href="/logs">📄 Raw Logs</a>
-        <table>
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Size</th>
-              <th>Side</th>
-              <th>Entry Price</th>
-              <th>Stop Loss</th>
-              <th>Take Profit</th>
-              <th>PnL</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rows}
-          </tbody>
-        </table>
-        <p class="subtitle">Last updated: ${new Date().toLocaleTimeString()}</p>
-      </body>
-      </html>`;
-    res.send(html);
-  });
-
   // ---------- RAW LOGS ----------
   app.get('/logs', (req, res) => {
-    fs.readFile(humanLog, 'utf8')
-      .then(data => {
-        const html = `
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <meta charset="utf-8"/>
-            <title>Trading Bot Logs</title>
-            <meta http-equiv="refresh" content="30">
-            <style>${css}</style>
-          </head>
-          <body>
-            <h1>Trading Bot Logs</h1>
-            <a class="btn" href="/">📊 Essentials</a>
-            <a class="btn" href="/deep">🔍 Deep Dive</a>
-            <a class="btn" href="/trades">📈 Trades</a>
-            <pre>${data.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>
-          </body>
-          </html>`;
-        res.send(html);
-      })
-      .catch(err => {
-        res.status(500).send('Cannot read log file.');
-      });
+    fs.readFile(humanLog, 'utf8', (err, data) => {
+      if (err) return res.status(500).send('Cannot read log file.');
+      const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8"/>
+          <title>Trading Bot Logs</title>
+          <meta http-equiv="refresh" content="30">
+          <style>${css}</style>
+        </head>
+        <body>
+          <h1>Trading Bot Logs</h1>
+          <a class="btn" href="/">📊 Essentials</a>
+          <a class="btn" href="/deep">🔍 Deep Dive</a>
+          <pre>${data.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>
+        </body>
+        </html>`;
+      res.send(html);
+    });
   });
 
   // ---------- START ----------
