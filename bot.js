@@ -95,8 +95,8 @@ async function placeInitialDebugOrder() {
         // Define trade parameters for the debug order
         // NOTE: These are hardcoded for debugging purposes.
         const size = 1; // 1 unit of the pair
-        const stopLossOffset = 50; // hardcoded offset of 50 for debugging
-        const takeProfitOffset = 150; // hardcoded offset of 150 for debugging
+        const stopLossOffset = 5000; // hardcoded offset of 50 for debugging
+        const takeProfitOffset = 15000; // hardcoded offset of 150 for debugging
 
         const params = {
             size,
