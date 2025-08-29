@@ -142,12 +142,15 @@ async function placeInitialDebugOrder() {
         await exec.placeOrder({ signal, pair: PAIR, params, lastPrice });
         log.info('Debug order placed successfully.');
         
-        // New: Capture and store the trade record
+        // New: Capture and store the trade record without PnL
         const tradeRecord = {
             date: new Date().toISOString(),
             size: params.size,
             side: signal,
-            price: lastPrice
+            price: lastPrice,
+            stopLoss: params.stopLoss,
+            takeProfit: params.takeProfit,
+            pnl: undefined // PnL is not calculated yet
         };
         allTrades.push(tradeRecord);
         log.info('Debug trade recorded in memory:', tradeRecord);
@@ -201,6 +204,40 @@ async function cycle() {
             return;
         }
 
+        // New: Check for open trades that need PnL calculation
+        const lastPrice = market.ohlc.at(-1).close;
+        if (allTrades.length > 0) {
+            log.info('Checking for open trades to calculate PnL...');
+            const tradesToSave = [...allTrades];
+            const updatedTrades = [];
+            for (const trade of tradesToSave) {
+                if (trade.pnl === undefined) {
+                    let finalPrice = null;
+                    // Check if the current price has crossed the stop loss or take profit level
+                    if (trade.side === 'LONG' && (lastPrice <= trade.stopLoss || lastPrice >= trade.takeProfit)) {
+                        finalPrice = (lastPrice <= trade.stopLoss) ? trade.stopLoss : trade.takeProfit;
+                    } else if (trade.side === 'SHORT' && (lastPrice >= trade.stopLoss || lastPrice <= trade.takeProfit)) {
+                        finalPrice = (lastPrice >= trade.stopLoss) ? trade.stopLoss : trade.takeProfit;
+                    }
+
+                    if (finalPrice !== null) {
+                        // PnL calculation based on side and final price
+                        const pnl = (trade.side === 'LONG') 
+                            ? (finalPrice - trade.price) * trade.size
+                            : (trade.price - finalPrice) * trade.size;
+                        
+                        // Update the trade record with the calculated PnL
+                        trade.pnl = pnl;
+                        log.info(`PnL calculated for trade: ${trade.date}. PnL: ${pnl.toFixed(2)}`);
+                    }
+                }
+                updatedTrades.push(trade);
+            }
+            allTrades.length = 0;
+            allTrades.push(...updatedTrades);
+        }
+
+        // The rest of the trading logic remains the same
         const open = market.positions?.openPositions?.filter(p => p.symbol === PAIR) || [];
 
         if (open.length) {
@@ -233,12 +270,15 @@ async function cycle() {
                     await exec.placeOrder({ signal: signal.signal, pair: PAIR, params, lastPrice });
                     log.info('Order placed successfully.');
                     
-                    // New: Capture and store the trade record
+                    // New: Create the trade record without PnL
                     const tradeRecord = {
                         date: new Date().toISOString(),
                         size: params.size,
                         side: signal.signal,
-                        price: lastPrice
+                        price: lastPrice,
+                        stopLoss: params.stopLoss,
+                        takeProfit: params.takeProfit,
+                        pnl: undefined // PnL is not calculated yet
                     };
                     allTrades.push(tradeRecord);
                     log.info('Trade recorded in memory:', tradeRecord);
