@@ -58,7 +58,7 @@ const createThreeMinuteCandles = (candles) => {
 
 /* ---------- trading cycle ---------- */
 async function cycle() {
-    log.info('Starting bot cycle...');
+    log.info('Starting a new bot cycle...');
     try {
         const { KRAKEN_API_KEY, KRAKEN_SECRET_KEY } = process.env;
         if (!KRAKEN_API_KEY || !KRAKEN_SECRET_KEY) {
@@ -73,6 +73,7 @@ async function cycle() {
 
         let market;
         try {
+            log.info('Data fetch stage:');
             log.info('Fetching market data for', OHLC_PAIR, 'at 1-minute intervals.');
             const rawMarketData = await data.fetchAllData(OHLC_PAIR, 1);
             rawMarketData.ohlc = createThreeMinuteCandles(rawMarketData.ohlc);
@@ -96,15 +97,17 @@ async function cycle() {
 
         let signal;
         try {
+            log.info('Signal generation stage:');
             log.info('Generating trading signal...');
             signal = await strat.generateSignal(market);
-            log.info('Signal generated:', signal);
+            log.info(`Signal generated: ${signal.signal} with confidence ${signal.confidence}`);
         } catch (signalError) {
             log.error('Failed to generate trading signal:', signalError);
             return;
         }
 
         if (signal.signal !== 'HOLD' && signal.confidence >= MIN_CONF) {
+            log.info('Execution stage:');
             log.info('Signal meets confidence threshold. Calculating trade parameters...');
             const params = risk.calculateTradeParameters(market, signal);
 
