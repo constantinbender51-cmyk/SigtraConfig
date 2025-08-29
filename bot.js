@@ -105,7 +105,8 @@ async function placeInitialDebugOrder() {
             stopLoss: Math.round(lastPrice - stopLossOffset), // Stop loss below the current price
             takeProfit: Math.round(lastPrice + takeProfitOffset), // Take profit above the current price
         };
-        const signal = 'BUY';
+        // The signal is now 'LONG' to pass the new validation.
+        const signal = 'LONG';
 
         log.info('Debug order parameters:', params); // Log the parameters object explicitly
         await exec.placeOrder({ signal, pair: PAIR, params, lastPrice });
