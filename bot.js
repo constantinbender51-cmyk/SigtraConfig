@@ -154,15 +154,9 @@ async function cycle() {
                 
                 if (params) {
                     const lastPrice = market.ohlc.at(-1).close;
-                    const orderResult = {
-                      sendStatus: {
-                        order_id: `mock-${Date.now()}`
-                      }
-                    };
-                    
                     try {
                         // In a real bot, you would use this line:
-                        // const orderResult = await exec.placeOrder({ signal: signal.signal, pair: PAIR, params, lastPrice });
+                        const orderResult = await exec.placeOrder({ signal: signal.signal, pair: PAIR, params, lastPrice });
                         
                         // Create the trade log entry
                         const tradeLog = {
