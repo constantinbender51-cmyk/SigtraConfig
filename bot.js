@@ -63,7 +63,7 @@ const createThreeMinuteCandles = (candles) => {
 };
 
 /**
- * Reads the trade log file, adds a new trade entry, and writes the file back.
+ * Reads the trade log file, adds a new trade entry or updates an existing one, and writes the file back.
  * @param {object} tradeDetails - The trade object to be logged.
  */
 const logTrade = async (tradeDetails) => {
@@ -81,9 +81,21 @@ const logTrade = async (tradeDetails) => {
                 throw readError;
             }
         }
-        
-        // Append the new trade details and write the updated array back
-        trades.push(tradeDetails);
+
+        // Find the index of the existing trade with the same id
+        const existingTradeIndex = trades.findIndex(trade => trade.id === tradeDetails.id);
+
+        if (existingTradeIndex !== -1) {
+            // If the trade already exists, overwrite the entry
+            trades[existingTradeIndex] = tradeDetails;
+            log.info(`Overwriting existing trade with ID: ${tradeDetails.id}.`);
+        } else {
+            // If it's a new trade, append it to the array
+            trades.push(tradeDetails);
+            log.info(`New trade entry added with ID: ${tradeDetails.id}.`);
+        }
+
+        // Write the updated array back to the file
         await fs.writeFile(TRADE_LOG_FILE, JSON.stringify(trades, null, 2), 'utf8');
         log.info(`Trade details successfully logged to ${TRADE_LOG_FILE}.`);
     } catch (error) {
@@ -133,7 +145,9 @@ async function cycle() {
                 if (lastTradeDetails && lastBalance !== null) {
                     // Calculate PnL based on the change in balance
                     const pnl = market.balance - lastBalance;
+                    // The trade object now has the final PnL
                     const closedTrade = { ...lastTradeDetails, pnl: pnl.toFixed(2) };
+                    // We use logTrade here to update the existing trade entry in the file
                     await logTrade(closedTrade);
                     log.info(`Trade closed. PnL: ${pnl.toFixed(2)} USD.`);
                 }
@@ -143,7 +157,7 @@ async function cycle() {
                 lastTradeDetails = null; // Reset the last trade details
                 wasPositionOpen = false;
             }
-            
+
             let signal;
             try {
                 signal = await strat.generateSignal(market);
@@ -152,16 +166,16 @@ async function cycle() {
                 log.error('Failed to generate trading signal:', signalError);
                 return;
             }
-            
+
             if (signal.signal !== 'HOLD' && signal.confidence >= MIN_CONF) {
                 const params = risk.calculateTradeParameters(market, signal);
-                
+
                 if (params) {
                     const lastPrice = market.ohlc.at(-1).close;
                     try {
                         // In a real bot, you would use this line:
                         const orderResult = await exec.placeOrder({ signal: signal.signal, pair: PAIR, params, lastPrice });
-                        
+
                         // Create the trade log entry
                         const tradeLog = {
                             id: orderResult.sendStatus.order_id,
@@ -172,10 +186,10 @@ async function cycle() {
                             takeProfit: params.takeProfit,
                             pnl: null // PnL is null until the position is closed
                         };
-                        
+
                         // Store the details in a global variable to be used later
                         lastTradeDetails = tradeLog;
-                        // Log the initial trade details
+                        // Log the initial trade details. The new logTrade will handle duplicates.
                         await logTrade(tradeLog);
 
                         log.info(`Order placed for ${PAIR}: ${signal.signal}.`);
