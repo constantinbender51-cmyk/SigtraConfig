@@ -118,7 +118,7 @@ async function placeInitialDebugOrder() {
 }
 
 // The debug order placement is now active.
-await placeInitialDebugOrder();
+// await placeInitialDebugOrder();
 
 
 /* ---------- trading cycle ---------- */
