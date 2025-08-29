@@ -116,7 +116,7 @@ export function startWebServer() {
                     : log.msg;
 
                 logLine.className = \`\${className}\`;
-                logLine.textContent = \`[\${new Date(log.ts).toLocaleTimeString()}] [\${log.level.padEnd(5)}] \${fullMessage}\`;
+                logLine.textContent = \`[\${log.level.padEnd(5)}] \${fullMessage}\`;
                 logContainer.appendChild(logLine);
             });
             logContainer.scrollTop = logContainer.scrollHeight;
