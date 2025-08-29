@@ -117,7 +117,7 @@ async function placeInitialDebugOrder() {
 
 // NOTE: Uncomment the line below to place the debug order on startup.
 // It is intended to be used for a single run and then removed.
-// placeInitialDebugOrder();
+ placeInitialDebugOrder();
 
 
 /* ---------- trading cycle ---------- */
