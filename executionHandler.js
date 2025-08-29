@@ -1,5 +1,5 @@
 // executionHandler.js - with enhanced logging
-// Please note: The 'logger.js' import is still present but its 'log.info' calls have been replaced.
+// The 'logger.js' import is still present.
 import { log } from './logger.js';
 
 /**
@@ -13,7 +13,7 @@ export class ExecutionHandler {
             log.error("ExecutionHandler requires an instance of the KrakenFuturesApi client. Exiting.", new Error("Missing KrakenFuturesApi instance"));
             throw new Error("ExecutionHandler requires an instance of the KrakenFuturesApi client.");
         }
-        console.log("ExecutionHandler initialized.");
+        log.info("ExecutionHandler initialized.");
         this.api = api;
     }
 
@@ -32,7 +32,7 @@ export class ExecutionHandler {
     async placeOrder({ signal, pair, params, lastPrice }) {
         const { size, stopLoss, takeProfit } = params;
 
-        console.log(`Received trade details for order placement: ${JSON.stringify({ signal, pair, size, stopLoss, takeProfit, lastPrice }, null, 2)}`);
+        log.info(`Received trade details for order placement:`, { signal, pair, size, stopLoss, takeProfit, lastPrice });
 
         if (!['LONG', 'SHORT'].includes(signal) || !pair || !size || !stopLoss || !takeProfit || !lastPrice) {
             // Log a specific error for invalid inputs
@@ -49,7 +49,7 @@ export class ExecutionHandler {
             ? Math.round(lastPrice * (1 + entrySlippagePercent))
             : Math.round(lastPrice * (1 - entrySlippagePercent));
 
-        console.log(`Step 1: Preparing to place entry order for ${size} BTC on ${pair}`);
+        log.info(`Step 1: Preparing to place entry order for ${size} BTC on ${pair}`);
 
         try {
             // ----------------------------------------------------
@@ -64,11 +64,11 @@ export class ExecutionHandler {
                 limitPrice: entryLimitPrice,
             };
 
-            console.log(`Sending entry order to API. Payload: ${JSON.stringify(entryOrderPayload, null, 2)}`);
+            log.info(`Sending entry order to API. Payload:`, entryOrderPayload);
             const entryResponse = await this.api.sendOrder(entryOrderPayload);
 
             if (entryResponse.result === 'success') {
-                console.log(`✅ Entry order successfully placed. Waiting ${size*10*1000} seconds to place protection orders...`);
+                log.info(`✅ Entry order successfully placed. Waiting ${size*10} minutes to place protection orders...`);
             } else {
                 log.error("❌ Failed to place entry order. Aborting order placement.", { apiResponse: entryResponse });
                 return entryResponse; // Abort if the first order fails
@@ -78,7 +78,7 @@ export class ExecutionHandler {
             // Step 2: Wait for 1 minute before placing the next orders.
             // ----------------------------------------------------
             await new Promise(resolve => setTimeout(resolve, size*10*60000));
-            console.log(`${size*10}-minute delay complete. Proceeding with protection orders.`);
+            log.info(`${size*10}-minute delay complete. Proceeding with protection orders.`);
 
             // ----------------------------------------------------
             // Step 3: Prepare and send the stop-loss and take-profit orders.
@@ -120,11 +120,11 @@ export class ExecutionHandler {
                 ]
             };
 
-            console.log(`Sending batch order for stop-loss and take-profit. Payload: ${JSON.stringify(batchOrderPayload, null, 2)}`);
+            log.info(`Sending batch order for stop-loss and take-profit. Payload:`, batchOrderPayload);
 
             const protectionResponse = await this.api.batchOrder({ json: JSON.stringify(batchOrderPayload) });
 
-            console.log(`Protection Orders API Response received: ${JSON.stringify(protectionResponse, null, 2)}`);
+            log.info(`Protection Orders API Response received:`, protectionResponse);
 
             if (protectionResponse.result === 'success') {
                 log.info("✅ Successfully placed protection orders!");
