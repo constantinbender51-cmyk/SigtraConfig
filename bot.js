@@ -97,7 +97,7 @@ async function cycle() {
         } else {
             // Log the balance here, but only if the flag indicates a position was just closed or it's the first run
             if (wasPositionOpen) {
-                log.info(`Updated Balance: ${market.balance.toFixed(2)} USD.`);
+                log.info(`New balance: ${market.balance.toFixed(2)} USD.`);
                 wasPositionOpen = false; // Reset the flag to prevent logging in consecutive "no position" cycles
             }
             
