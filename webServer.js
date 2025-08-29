@@ -122,6 +122,8 @@ export function startWebServer() {
 
           // State for current view
           let currentView = 'logs';
+          let lastLogCount = 0;
+          let lastTradeCount = 0;
 
           // Tab switching function
           function switchTab(tab) {
@@ -131,6 +133,7 @@ export function startWebServer() {
               logsContent.classList.remove('hidden');
               tradesContent.classList.add('hidden');
               currentView = 'logs';
+              fetchLogs();
             } else {
               logsTab.classList.remove('active');
               tradesTab.classList.add('active');
@@ -153,21 +156,28 @@ export function startWebServer() {
                 throw new Error(\`Failed to fetch logs: \${response.status} \${response.statusText}\`);
               }
               const logs = await response.json();
-              displayLogs(logs);
+              addLogsToContainer(logs);
             } catch (error) {
               console.error(error);
               logContainer.innerHTML = \`<p class="text-center text-red-400">Error loading logs. Please check the server logs for details. (\${error.message})</p>\`;
             }
           }
 
-          function displayLogs(logs) {
-            logContainer.innerHTML = '';
+          function addLogsToContainer(logs) {
             if (logs.length === 0) {
               logContainer.innerHTML = '<p class="text-center text-gray-400">No logs to display yet...</p>';
+              lastLogCount = 0;
               return;
             }
 
-            logs.forEach(log => {
+            const newLogs = logs.slice(lastLogCount);
+            if (newLogs.length === 0) {
+                return;
+            }
+            
+            const isScrolledToBottom = logContainer.scrollHeight - logContainer.clientHeight <= logContainer.scrollTop + 1;
+
+            newLogs.forEach(log => {
               const logLine = document.createElement('p');
               let className = 'text-gray-200';
               if (log.level === 'WARN') {
@@ -186,7 +196,12 @@ export function startWebServer() {
               logLine.textContent = \`[\${log.level.padEnd(5)}] \${fullMessage}\`;
               logContainer.appendChild(logLine);
             });
-            logContainer.scrollTop = logContainer.scrollHeight;
+            
+            lastLogCount = logs.length;
+
+            if (isScrolledToBottom) {
+              logContainer.scrollTop = logContainer.scrollHeight;
+            }
           }
 
           // --- Trade fetching logic ---
@@ -198,51 +213,73 @@ export function startWebServer() {
                 throw new Error(\`Failed to fetch trades: \${response.status} \${response.statusText}\`);
               }
               const trades = await response.json();
-              displayTrades(trades);
+              addTradesToTable(trades);
             } catch (error) {
               console.error(error);
               tradesContent.innerHTML = \`<p class="text-center text-red-400">Error loading trades. Please check the server logs for details. (\${error.message})</p>\`;
             }
           }
           
-          function displayTrades(trades) {
+          function addTradesToTable(trades) {
             if (trades.length === 0) {
               tradesContent.innerHTML = '<p class="text-center text-gray-400">No trades to display yet...</p>';
+              lastTradeCount = 0;
               return;
             }
 
-            const tableHtml = \`
-              <div class="overflow-x-auto rounded-lg shadow-md">
-                <table class="w-full text-left text-sm text-gray-500">
-                  <thead class="text-xs text-gray-700 uppercase bg-gray-50">
-                    <tr>
-                      <th scope="col" class="py-3 px-6 rounded-tl-lg">ID</th>
-                      <th scope="col" class="py-3 px-6">Side</th>
-                      <th scope="col" class="py-3 px-6">Size</th>
-                      <th scope="col" class="py-3 px-6">Entry Price</th>
-                      <th scope="col" class="py-3 px-6">P&L</th>
-                      <th scope="col" class="py-3 px-6 rounded-tr-lg">Details</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    \${trades.map(trade => \`
-                      <tr class="bg-white border-b hover:bg-gray-50">
-                        <td class="py-4 px-6 font-medium text-gray-900 whitespace-nowrap">\${trade.id.substring(0, 8)}...</td>
-                        <td class="py-4 px-6 \${trade.side === 'BUY' ? 'text-green-600' : 'text-red-600'}">\${trade.side}</td>
-                        <td class="py-4 px-6">\${trade.size}</td>
-                        <td class="py-4 px-6">\${trade.lastPrice.toFixed(2)}</td>
-                        <td class="py-4 px-6 \${(trade.pnl > 0) ? 'text-green-600' : (trade.pnl < 0) ? 'text-red-600' : 'text-gray-500'}">\${trade.pnl !== null ? trade.pnl : 'Pending'}</td>
-                        <td class="py-4 px-6">
-                            <span class="text-xs text-gray-500 block">SL: \${trade.stopLoss.toFixed(2)}</span>
-                            <span class="text-xs text-gray-500 block">TP: \${trade.takeProfit.toFixed(2)}</span>
-                        </td>
-                      </tr>
-                    \`).join('')}
-                  </tbody>
-                </table>
-              </div>
-            \`;
-            tradesContent.innerHTML = tableHtml;
+            const newTrades = trades.slice(lastTradeCount);
+            if (newTrades.length === 0) {
+                return;
+            }
+
+            // Create the table if it doesn't exist
+            let table = tradesContent.querySelector('table');
+            if (!table) {
+                tradesContent.innerHTML = \`
+                  <div class="overflow-x-auto rounded-lg shadow-md">
+                    <table class="w-full text-left text-sm text-gray-500">
+                      <thead class="text-xs text-gray-700 uppercase bg-gray-50">
+                        <tr>
+                          <th scope="col" class="py-3 px-6 rounded-tl-lg">ID</th>
+                          <th scope="col" class="py-3 px-6">Side</th>
+                          <th scope="col" class="py-3 px-6">Size</th>
+                          <th scope="col" class="py-3 px-6">Entry Price</th>
+                          <th scope="col" class="py-3 px-6">P&L</th>
+                          <th scope="col" class="py-3 px-6 rounded-tr-lg">Details</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                      </tbody>
+                    </table>
+                  </div>
+                \`;
+                table = tradesContent.querySelector('table');
+            }
+            const tbody = table.querySelector('tbody');
+            const isScrolledToBottom = tradesContent.scrollHeight - tradesContent.clientHeight <= tradesContent.scrollTop + 1;
+
+            newTrades.forEach(trade => {
+                const row = document.createElement('tr');
+                row.className = 'bg-white border-b hover:bg-gray-50';
+                row.innerHTML = \`
+                    <td class="py-4 px-6 font-medium text-gray-900 whitespace-nowrap">\${trade.id.substring(0, 8)}...</td>
+                    <td class="py-4 px-6 \${trade.side === 'BUY' ? 'text-green-600' : 'text-red-600'}">\${trade.side}</td>
+                    <td class="py-4 px-6">\${trade.size}</td>
+                    <td class="py-4 px-6">\${trade.lastPrice.toFixed(2)}</td>
+                    <td class="py-4 px-6 \${(trade.pnl > 0) ? 'text-green-600' : (trade.pnl < 0) ? 'text-red-600' : 'text-gray-500'}">\${trade.pnl !== null ? trade.pnl : 'Pending'}</td>
+                    <td class="py-4 px-6">
+                        <span class="text-xs text-gray-500 block">SL: \${trade.stopLoss.toFixed(2)}</span>
+                        <span class="text-xs text-gray-500 block">TP: \${trade.takeProfit.toFixed(2)}</span>
+                    </td>
+                \`;
+                tbody.appendChild(row);
+            });
+            
+            lastTradeCount = trades.length;
+
+            if (isScrolledToBottom) {
+              tradesContent.scrollTop = tradesContent.scrollHeight;
+            }
           }
 
           // Initial fetch and set up interval for periodic updates
