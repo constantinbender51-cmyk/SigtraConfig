@@ -68,7 +68,7 @@ export class ExecutionHandler {
             const entryResponse = await this.api.sendOrder(entryOrderPayload);
 
             if (entryResponse.result === 'success') {
-                console.log("✅ Entry order successfully placed. Waiting 60 seconds to place protection orders...");
+                console.log(`✅ Entry order successfully placed. Waiting ${size*10*1000} seconds to place protection orders...`);
             } else {
                 log.error("❌ Failed to place entry order. Aborting order placement.", { apiResponse: entryResponse });
                 return entryResponse; // Abort if the first order fails
