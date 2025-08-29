@@ -13,7 +13,6 @@ export class ExecutionHandler {
             log.error("ExecutionHandler requires an instance of the KrakenFuturesApi client. Exiting.", new Error("Missing KrakenFuturesApi instance"));
             throw new Error("ExecutionHandler requires an instance of the KrakenFuturesApi client.");
         }
-        log.info("ExecutionHandler initialized.");
         this.api = api;
     }
 
