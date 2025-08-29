@@ -95,8 +95,8 @@ async function placeInitialDebugOrder() {
         // Define trade parameters for the debug order
         // NOTE: These are hardcoded for debugging purposes.
         const size = 1; // 1 unit of the pair
-        const stopLossOffset = 5000; // hardcoded offset of 50 for debugging
-        const takeProfitOffset = 15000; // hardcoded offset of 150 for debugging
+        const stopLossOffset = 5000; // Hardcoded offset for debugging, at least a few thousand USD away.
+        const takeProfitOffset = 5000; // Hardcoded offset for debugging, at least a few thousand USD away.
 
         const params = {
             size,
@@ -105,7 +105,7 @@ async function placeInitialDebugOrder() {
         };
         const signal = 'BUY';
 
-        log.info(`Placing debug order: ${signal} with size ${params.size}, SL: ${params.stopLoss}, TP: ${params.takeProfit}`);
+        log.info('Debug order parameters:', params); // Log the parameters object explicitly
         await exec.placeOrder({ signal, pair: PAIR, params, lastPrice });
         log.info('Debug order placed successfully.');
 
@@ -117,7 +117,7 @@ async function placeInitialDebugOrder() {
 
 // NOTE: Uncomment the line below to place the debug order on startup.
 // It is intended to be used for a single run and then removed.
- placeInitialDebugOrder();
+// placeInitialDebugOrder();
 
 
 /* ---------- trading cycle ---------- */
@@ -180,6 +180,9 @@ async function cycle() {
         if (signal.signal !== 'HOLD' && signal.confidence >= MIN_CONF) {
             log.info(`Signal meets confidence threshold (${MIN_CONF}). Calculating trade parameters...`);
             const params = risk.calculateTradeParameters(market, signal);
+
+            // Add a log to show the calculated trade parameters
+            log.info('Calculated trade parameters:', params);
 
             if (params) {
                 log.info('Trade parameters calculated. Attempting to place order...');
