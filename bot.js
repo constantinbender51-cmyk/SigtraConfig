@@ -64,6 +64,62 @@ const createThreeMinuteCandles = (candles) => {
     return threeMinCandles;
 };
 
+/* ---------- debugging tool: initial order placement ---------- */
+
+/**
+ * Places a single, hardcoded long order with stop loss and take profit for debugging.
+ * This function is intended to be used once at startup and should be removed
+ * once the core trading logic is confirmed to be working.
+ */
+async function placeInitialDebugOrder() {
+    log.info('--- Debug Mode: Placing initial long order ---');
+
+    try {
+        const { KRAKEN_API_KEY, KRAKEN_SECRET_KEY } = process.env;
+        if (!KRAKEN_API_KEY || !KRAKEN_SECRET_KEY) {
+            log.error('Missing API keys. Cannot place debug order.');
+            return;
+        }
+
+        const data = new DataHandler(KRAKEN_API_KEY, KRAKEN_SECRET_KEY);
+        const exec = new ExecutionHandler(data.api);
+
+        log.info('Fetching current market price for order placement...');
+        const rawMarketData = await data.fetchAllData(OHLC_PAIR, 1);
+        const lastPrice = rawMarketData.ohlc.at(-1).close;
+        if (!lastPrice) {
+            log.error('Could not fetch last market price. Aborting debug order placement.');
+            return;
+        }
+
+        // Define trade parameters for the debug order
+        // NOTE: These are hardcoded for debugging purposes.
+        const size = 1; // 1 unit of the pair
+        const stopLossOffset = 50; // hardcoded offset of 50 for debugging
+        const takeProfitOffset = 150; // hardcoded offset of 150 for debugging
+
+        const params = {
+            size,
+            stopLoss: lastPrice - stopLossOffset, // Stop loss below the current price
+            takeProfit: lastPrice + takeProfitOffset, // Take profit above the current price
+        };
+        const signal = 'BUY';
+
+        log.info(`Placing debug order: ${signal} with size ${params.size}, SL: ${params.stopLoss}, TP: ${params.takeProfit}`);
+        await exec.placeOrder({ signal, pair: PAIR, params, lastPrice });
+        log.info('Debug order placed successfully.');
+
+    } catch (e) {
+        log.error('An error occurred while placing the debug order:', e.message);
+        log.debug('Full error object:', e);
+    }
+}
+
+// NOTE: Uncomment the line below to place the debug order on startup.
+// It is intended to be used for a single run and then removed.
+// placeInitialDebugOrder();
+
+
 /* ---------- trading cycle ---------- */
 async function cycle() {
     log.info(`--- starting cycle for ${PAIR} ---`);
