@@ -1,5 +1,5 @@
+// bot.js – simplified, functional version
 import dotenv from 'dotenv';
-import fs from 'fs/promises';
 import { startWebServer } from './webServer.js';
 import { DataHandler } from './dataHandler.js';
 import { StrategyEngine } from './strategyEngine.js';
@@ -18,42 +18,11 @@ const OHLC_PAIR = 'XBTUSD';
 const INTERVAL = 3;
 const MIN_CONF = 25;
 const CYCLE_MS = 180_000;
-const TRADES_FILE = 'trades.json';
 
 /* ---------- state ---------- */
 let sigCnt = 0;
 let tradeCnt = 0;
 let orderCnt = 0;
-// New: A variable to hold all trade records.
-const allTrades = [];
-
-/**
- * Saves the current trade history to a JSON file.
- * This function will read the existing file, append the new trades,
- * and write the entire updated array back to disk.
- */
-async function saveTradesToFile() {
-    try {
-        let existingTrades = [];
-        try {
-            const data = await fs.readFile(TRADES_FILE, 'utf8');
-            existingTrades = JSON.parse(data);
-        } catch (readError) {
-            // File doesn't exist or is empty, which is fine for the first run.
-            log.info(`No existing trade file found at ${TRADES_FILE}. Creating a new one.`);
-        }
-        
-        const combinedTrades = [...existingTrades, ...allTrades];
-        await fs.writeFile(TRADES_FILE, JSON.stringify(combinedTrades, null, 2), 'utf8');
-        log.info(`Trade history saved to ${TRADES_FILE}`);
-        
-        // Clear the in-memory trades after writing to file to prevent duplicate writes
-        allTrades.length = 0;
-
-    } catch (writeError) {
-        log.error('Failed to write trade history to file:', writeError.message);
-    }
-}
 
 /* ---------- helpers ---------- */
 
@@ -141,19 +110,6 @@ async function placeInitialDebugOrder() {
         log.info('Debug order parameters:', params); // Log the parameters object explicitly
         await exec.placeOrder({ signal, pair: PAIR, params, lastPrice });
         log.info('Debug order placed successfully.');
-        
-        // New: Capture and store the trade record without PnL
-        const tradeRecord = {
-            date: new Date().toISOString(),
-            size: params.size,
-            side: signal,
-            price: lastPrice,
-            stopLoss: params.stopLoss,
-            takeProfit: params.takeProfit,
-            pnl: undefined // PnL is not calculated yet
-        };
-        allTrades.push(tradeRecord);
-        log.info('Debug trade recorded in memory:', tradeRecord);
 
     } catch (e) {
         log.error('An error occurred while placing the debug order:', e.message);
@@ -204,40 +160,6 @@ async function cycle() {
             return;
         }
 
-        // New: Check for open trades that need PnL calculation
-        const lastPrice = market.ohlc.at(-1).close;
-        if (allTrades.length > 0) {
-            log.info('Checking for open trades to calculate PnL...');
-            const tradesToSave = [...allTrades];
-            const updatedTrades = [];
-            for (const trade of tradesToSave) {
-                if (trade.pnl === undefined) {
-                    let finalPrice = null;
-                    // Check if the current price has crossed the stop loss or take profit level
-                    if (trade.side === 'LONG' && (lastPrice <= trade.stopLoss || lastPrice >= trade.takeProfit)) {
-                        finalPrice = (lastPrice <= trade.stopLoss) ? trade.stopLoss : trade.takeProfit;
-                    } else if (trade.side === 'SHORT' && (lastPrice >= trade.stopLoss || lastPrice <= trade.takeProfit)) {
-                        finalPrice = (lastPrice >= trade.stopLoss) ? trade.stopLoss : trade.takeProfit;
-                    }
-
-                    if (finalPrice !== null) {
-                        // PnL calculation based on side and final price
-                        const pnl = (trade.side === 'LONG') 
-                            ? (finalPrice - trade.price) * trade.size
-                            : (trade.price - finalPrice) * trade.size;
-                        
-                        // Update the trade record with the calculated PnL
-                        trade.pnl = pnl;
-                        log.info(`PnL calculated for trade: ${trade.date}. PnL: ${pnl.toFixed(2)}`);
-                    }
-                }
-                updatedTrades.push(trade);
-            }
-            allTrades.length = 0;
-            allTrades.push(...updatedTrades);
-        }
-
-        // The rest of the trading logic remains the same
         const open = market.positions?.openPositions?.filter(p => p.symbol === PAIR) || [];
 
         if (open.length) {
@@ -269,20 +191,6 @@ async function cycle() {
                 try {
                     await exec.placeOrder({ signal: signal.signal, pair: PAIR, params, lastPrice });
                     log.info('Order placed successfully.');
-                    
-                    // New: Create the trade record without PnL
-                    const tradeRecord = {
-                        date: new Date().toISOString(),
-                        size: params.size,
-                        side: signal.signal,
-                        price: lastPrice,
-                        stopLoss: params.stopLoss,
-                        takeProfit: params.takeProfit,
-                        pnl: undefined // PnL is not calculated yet
-                    };
-                    allTrades.push(tradeRecord);
-                    log.info('Trade recorded in memory:', tradeRecord);
-                    
                 } catch (orderError) {
                     log.error('Failed to place order:', orderError.message);
                     log.error('Full order placement error object:', orderError);
@@ -298,10 +206,6 @@ async function cycle() {
         log.error('Full unexpected error object:', e);
     } finally {
         log.info('--- cycle finished ---');
-        // New: Save trades to file at the end of each cycle if there are new trades.
-        if (allTrades.length > 0) {
-            await saveTradesToFile();
-        }
     }
 }
 
@@ -315,10 +219,5 @@ loop();
 /* ---------- graceful shutdown ---------- */
 process.on('SIGINT', () => {
     log.warn('SIGINT received – shutting down');
-    // Save any pending trades before exiting
-    if (allTrades.length > 0) {
-        saveTradesToFile().finally(() => process.exit(0));
-    } else {
-        process.exit(0);
-    }
+    process.exit(0);
 });
