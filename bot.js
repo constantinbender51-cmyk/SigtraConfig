@@ -1,5 +1,5 @@
-// bot.js – simplified, functional version
 import dotenv from 'dotenv';
+import fs from 'fs/promises';
 import { startWebServer } from './webServer.js';
 import { DataHandler } from './dataHandler.js';
 import { StrategyEngine } from './strategyEngine.js';
@@ -18,11 +18,42 @@ const OHLC_PAIR = 'XBTUSD';
 const INTERVAL = 3;
 const MIN_CONF = 25;
 const CYCLE_MS = 180_000;
+const TRADES_FILE = 'trades.json';
 
 /* ---------- state ---------- */
 let sigCnt = 0;
 let tradeCnt = 0;
 let orderCnt = 0;
+// New: A variable to hold all trade records.
+const allTrades = [];
+
+/**
+ * Saves the current trade history to a JSON file.
+ * This function will read the existing file, append the new trades,
+ * and write the entire updated array back to disk.
+ */
+async function saveTradesToFile() {
+    try {
+        let existingTrades = [];
+        try {
+            const data = await fs.readFile(TRADES_FILE, 'utf8');
+            existingTrades = JSON.parse(data);
+        } catch (readError) {
+            // File doesn't exist or is empty, which is fine for the first run.
+            log.info(`No existing trade file found at ${TRADES_FILE}. Creating a new one.`);
+        }
+        
+        const combinedTrades = [...existingTrades, ...allTrades];
+        await fs.writeFile(TRADES_FILE, JSON.stringify(combinedTrades, null, 2), 'utf8');
+        log.info(`Trade history saved to ${TRADES_FILE}`);
+        
+        // Clear the in-memory trades after writing to file to prevent duplicate writes
+        allTrades.length = 0;
+
+    } catch (writeError) {
+        log.error('Failed to write trade history to file:', writeError.message);
+    }
+}
 
 /* ---------- helpers ---------- */
 
@@ -110,6 +141,16 @@ async function placeInitialDebugOrder() {
         log.info('Debug order parameters:', params); // Log the parameters object explicitly
         await exec.placeOrder({ signal, pair: PAIR, params, lastPrice });
         log.info('Debug order placed successfully.');
+        
+        // New: Capture and store the trade record
+        const tradeRecord = {
+            date: new Date().toISOString(),
+            size: params.size,
+            side: signal,
+            price: lastPrice
+        };
+        allTrades.push(tradeRecord);
+        log.info('Debug trade recorded in memory:', tradeRecord);
 
     } catch (e) {
         log.error('An error occurred while placing the debug order:', e.message);
@@ -191,6 +232,17 @@ async function cycle() {
                 try {
                     await exec.placeOrder({ signal: signal.signal, pair: PAIR, params, lastPrice });
                     log.info('Order placed successfully.');
+                    
+                    // New: Capture and store the trade record
+                    const tradeRecord = {
+                        date: new Date().toISOString(),
+                        size: params.size,
+                        side: signal.signal,
+                        price: lastPrice
+                    };
+                    allTrades.push(tradeRecord);
+                    log.info('Trade recorded in memory:', tradeRecord);
+                    
                 } catch (orderError) {
                     log.error('Failed to place order:', orderError.message);
                     log.error('Full order placement error object:', orderError);
@@ -206,6 +258,10 @@ async function cycle() {
         log.error('Full unexpected error object:', e);
     } finally {
         log.info('--- cycle finished ---');
+        // New: Save trades to file at the end of each cycle if there are new trades.
+        if (allTrades.length > 0) {
+            await saveTradesToFile();
+        }
     }
 }
 
@@ -219,5 +275,10 @@ loop();
 /* ---------- graceful shutdown ---------- */
 process.on('SIGINT', () => {
     log.warn('SIGINT received – shutting down');
-    process.exit(0);
+    // Save any pending trades before exiting
+    if (allTrades.length > 0) {
+        saveTradesToFile().finally(() => process.exit(0));
+    } else {
+        process.exit(0);
+    }
 });
