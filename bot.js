@@ -58,7 +58,6 @@ const createThreeMinuteCandles = (candles) => {
 
 /* ---------- trading cycle ---------- */
 async function cycle() {
-    log.info('Starting a new bot cycle...');
     try {
         const { KRAKEN_API_KEY, KRAKEN_SECRET_KEY } = process.env;
         if (!KRAKEN_API_KEY || !KRAKEN_SECRET_KEY) {
@@ -73,11 +72,9 @@ async function cycle() {
 
         let market;
         try {
-            log.info('Data fetch stage:');
-            log.info('Fetching 1-minute candles to create 3-minute candles for trading...');
             const rawMarketData = await data.fetchAllData(OHLC_PAIR, 1);
             rawMarketData.ohlc = createThreeMinuteCandles(rawMarketData.ohlc);
-            log.info('Successfully fetched and aggregated market data to a 3-minute timeframe.');
+            log.info(`Data fetched for ${OHLC_PAIR} and aggregated to a 3-minute timeframe.`);
             market = rawMarketData;
         } catch (dataError) {
             log.error('Failed to fetch market data:', dataError);
@@ -97,28 +94,23 @@ async function cycle() {
 
         let signal;
         try {
-            log.info('Signal generation stage:');
-            log.info('Generating trading signal...');
             signal = await strat.generateSignal(market);
-            log.info(`Signal generated: ${signal.signal} with confidence ${signal.confidence}`);
+            log.info(`Signal generated: ${signal.signal} with confidence ${signal.confidence}.`);
         } catch (signalError) {
             log.error('Failed to generate trading signal:', signalError);
             return;
         }
 
         if (signal.signal !== 'HOLD' && signal.confidence >= MIN_CONF) {
-            log.info('Execution stage:');
-            log.info('Signal meets confidence threshold. Calculating trade parameters...');
             const params = risk.calculateTradeParameters(market, signal);
 
             if (params) {
                 const lastPrice = market.ohlc.at(-1).close;
                 try {
-                    log.info('Placing order with parameters:', { signal: signal.signal, pair: PAIR, params, lastPrice });
                     // Mock order placement for demonstration purposes
                     const orderResult = { orderId: 'mock-12345', status: 'pending' };
                     // await exec.placeOrder({ signal: signal.signal, pair: PAIR, params, lastPrice });
-                    log.info('Order placed successfully:', orderResult);
+                    log.info(`Order placed for ${PAIR}: ${signal.signal}.`);
                 } catch (orderError) {
                     log.error('Failed to place order:', orderError);
                     return;
@@ -131,8 +123,6 @@ async function cycle() {
         }
     } catch (e) {
         log.error('An unhandled error occurred during the trading cycle:', e);
-    } finally {
-        log.info('Bot cycle complete. Waiting for next cycle.');
     }
 }
 
