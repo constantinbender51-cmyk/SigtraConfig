@@ -1,5 +1,5 @@
-// bot.js – simplified, functional version
 import dotenv from 'dotenv';
+import fs from 'fs/promises';
 import { startWebServer } from './webServer.js';
 import { DataHandler } from './dataHandler.js';
 import { StrategyEngine } from './strategyEngine.js';
@@ -16,9 +16,11 @@ const OHLC_PAIR = 'XBTUSD';
 const INTERVAL = 3;
 const MIN_CONF = 25;
 const CYCLE_MS = 180_000;
+const TRADE_LOG_FILE = 'trades.json';
 
 /* ---------- state ---------- */
 let wasPositionOpen = true; // Initialize to true so the balance is logged on the first run
+let lastTradeDetails = null; // Store details of the last trade to calculate PnL on closure
 
 /* ---------- helpers ---------- */
 
@@ -59,6 +61,35 @@ const createThreeMinuteCandles = (candles) => {
     return threeMinCandles;
 };
 
+/**
+ * Reads the trade log file, adds a new trade entry, and writes the file back.
+ * @param {object} tradeDetails - The trade object to be logged.
+ */
+const logTrade = async (tradeDetails) => {
+    try {
+        let trades = [];
+        // Check if the file exists before reading
+        try {
+            const data = await fs.readFile(TRADE_LOG_FILE, 'utf8');
+            trades = JSON.parse(data);
+        } catch (readError) {
+            // File might not exist yet, which is fine
+            if (readError.code === 'ENOENT') {
+                log.info(`Creating new trade log file: ${TRADE_LOG_FILE}`);
+            } else {
+                throw readError;
+            }
+        }
+        
+        // Append the new trade details and write the updated array back
+        trades.push(tradeDetails);
+        await fs.writeFile(TRADE_LOG_FILE, JSON.stringify(trades, null, 2), 'utf8');
+        log.info(`Trade details successfully logged to ${TRADE_LOG_FILE}.`);
+    } catch (error) {
+        log.error('Failed to log trade details:', error);
+    }
+};
+
 /* ---------- trading cycle ---------- */
 async function cycle() {
     try {
@@ -93,12 +124,22 @@ async function cycle() {
 
         if (open.length) {
             log.info('An open position already exists. Skipping signal generation.');
-            wasPositionOpen = true; // Set the flag to true because a position is currently open
+            wasPositionOpen = true;
         } else {
-            // Log the balance here, but only if the flag indicates a position was just closed or it's the first run
+            // When a position is closed, a new balance is logged.
+            // This is where we calculate and log the PnL of the last trade.
             if (wasPositionOpen) {
-                log.info(`New balance: ${market.balance.toFixed(2)} USD.`);
-                wasPositionOpen = false; // Reset the flag to prevent logging in consecutive "no position" cycles
+                const currentPrice = market.ohlc.at(-1).close;
+                if (lastTradeDetails) {
+                    const pnl = (currentPrice - lastTradeDetails.lastPrice) * lastTradeDetails.size;
+                    const closedTrade = { ...lastTradeDetails, pnl: pnl.toFixed(2) };
+                    await logTrade(closedTrade);
+                    lastTradeDetails = null; // Reset the last trade details
+                    log.info(`New balance: ${market.balance.toFixed(2)} USD.`);
+                } else {
+                    log.info(`New balance: ${market.balance.toFixed(2)} USD.`);
+                }
+                wasPositionOpen = false;
             }
             
             let signal;
@@ -109,16 +150,38 @@ async function cycle() {
                 log.error('Failed to generate trading signal:', signalError);
                 return;
             }
-    
+            
             if (signal.signal !== 'HOLD' && signal.confidence >= MIN_CONF) {
                 const params = risk.calculateTradeParameters(market, signal);
-    
+                
                 if (params) {
                     const lastPrice = market.ohlc.at(-1).close;
+                    const orderResult = {
+                      sendStatus: {
+                        order_id: `mock-${Date.now()}`
+                      }
+                    };
+                    
                     try {
-                        // Mock order placement for demonstration purposes
-                        const orderResult = { orderId: 'mock-12345', status: 'pending' };
-                        // await exec.placeOrder({ signal: signal.signal, pair: PAIR, params, lastPrice });
+                        // In a real bot, you would use this line:
+                        // const orderResult = await exec.placeOrder({ signal: signal.signal, pair: PAIR, params, lastPrice });
+                        
+                        // Create the trade log entry
+                        const tradeLog = {
+                            id: orderResult.sendStatus.order_id,
+                            side: signal.signal,
+                            size: params.size,
+                            lastPrice: lastPrice,
+                            stopLoss: params.stopLoss,
+                            takeProfit: params.takeProfit,
+                            pnl: null // PnL is null until the position is closed
+                        };
+                        
+                        // Store the details in a global variable to be used later
+                        lastTradeDetails = tradeLog;
+                        // Log the initial trade details
+                        await logTrade(tradeLog);
+
                         log.info(`Order placed for ${PAIR}: ${signal.signal}.`);
                     } catch (orderError) {
                         log.error('Failed to place order:', orderError);
