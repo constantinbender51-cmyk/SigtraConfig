@@ -21,6 +21,7 @@ const TRADE_LOG_FILE = 'trades.json';
 /* ---------- state ---------- */
 let wasPositionOpen = true; // Initialize to true so the balance is logged on the first run
 let lastTradeDetails = null; // Store details of the last trade to calculate PnL on closure
+let lastBalance = null; // Store the balance from the previous cycle to calculate PnL on position closure
 
 /* ---------- helpers ---------- */
 
@@ -129,14 +130,17 @@ async function cycle() {
             // When a position is closed, a new balance is logged.
             // This is where we calculate and log the PnL of the last trade.
             if (wasPositionOpen) {
-                const currentPrice = market.ohlc.at(-1).close;
-                if (lastTradeDetails) {
-                    const pnl = (currentPrice - lastTradeDetails.lastPrice) * lastTradeDetails.size;
+                if (lastTradeDetails && lastBalance !== null) {
+                    // Calculate PnL based on the change in balance
+                    const pnl = market.balance - lastBalance;
                     const closedTrade = { ...lastTradeDetails, pnl: pnl.toFixed(2) };
                     await logTrade(closedTrade);
-                    lastTradeDetails = null; // Reset the last trade details
-                    log.info(`New balance: ${market.balance.toFixed(2)} USD.`);
+                    log.info(`Trade closed. PnL: ${pnl.toFixed(2)} USD.`);
                 }
+                // Update the lastBalance for the next cycle
+                lastBalance = market.balance;
+                log.info(`New balance: ${market.balance.toFixed(2)} USD.`);
+                lastTradeDetails = null; // Reset the last trade details
                 wasPositionOpen = false;
             }
             
