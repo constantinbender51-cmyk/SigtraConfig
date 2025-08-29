@@ -64,7 +64,6 @@ export class DataHandler {
             // This is called optional chaining (`?.`) and prevents errors if a key doesn't exist.
             const availableMargin = data?.accounts?.flex?.availableMargin;
             if (typeof availableMargin === 'number') {
-                log.info(`Successfully fetched account balance. Tradable USD: $${availableMargin.toFixed(2)}`);
                 return availableMargin;
             } else {
                 // This case handles if the structure is unexpected or the value is missing.
