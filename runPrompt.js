@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI } from "@google/generative-ai";
 
 async function runPrompt() {
   const ai = new GoogleGenAI({}); // Automatically reads GEMINI_API_KEY env var
