@@ -128,15 +128,17 @@ ${JSON.stringify(allOhlcData, null, 2)}
     }
 
     _prompt(market, timeframe) {
-        const closes = market.ohlc.map(c => c.close);
+        // Limit OHLC data to the last 52 candles for the prompt
+        const ohlc = market.ohlc.slice(-52);
+        const closes = ohlc.map(c => c.close);
         const latest = closes.at(-1);
         const sma20 = closes.slice(-20).reduce((a, b) => a + b, 0) / 20;
         const atr14 = (() => {
             const trs = [];
             for (let i = 1; i < 15; i++) {
-                const h = market.ohlc.at(-i).high;
-                const l = market.ohlc.at(-i).low;
-                const pc = market.ohlc.at(-i - 1)?.close ?? h;
+                const h = ohlc.at(-i).high;
+                const l = ohlc.at(-i).low;
+                const pc = ohlc.at(-i - 1)?.close ?? h;
                 trs.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)));
             }
             return trs.reduce((a, b) => a + b, 0) / 14;
@@ -154,7 +156,7 @@ ${JSON.stringify(allOhlcData, null, 2)}
 
         return `Based on the ${timeframe} Timeframe OHLC data, and the indicators below generate a signal json object including "signal" which is LONG SHORT or HOLD,"confidence" a value measuring calculated confluence between 0 and 10,"stop_loss_distance_in_usd" the distance from the current market price a stop loss order is to be initiated,"take_profit_distance_in_usd" the distance a take profit order is to be initiated, and"reason": a comprehensive explanation of your decisionmaking process
 
-OHLC Data for ${timeframe}: ${JSON.stringify(market.ohlc)}
+OHLC Data for ${timeframe}: ${JSON.stringify(ohlc)}
 Indicators:
 - lastClose=${latest}
 - 20SMA=${sma20.toFixed(2)}
