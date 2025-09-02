@@ -121,6 +121,7 @@ async function cycle() {
         }
 
         const timeframeDecision = await strat.selectTimeframe(allOhlcData);
+        log.info('AI Timeframe Decision:', timeframeDecision);
         const chosenTimeframe = timeframeDecision.timeframe;
         log.info(`AI selected "${chosenTimeframe}" as the most interesting timeframe to trade on.`);
 
@@ -161,6 +162,7 @@ async function cycle() {
             let signal;
             try {
                 signal = await strat.generateSignal(market, chosenTimeframe);
+                log.info('AI Signal Response:', signal);
                 log.info(`Signal generated: ${signal.signal} with confidence ${signal.confidence}.`);
             } catch (signalError) {
                 log.error('Failed to generate trading signal:', signalError);
