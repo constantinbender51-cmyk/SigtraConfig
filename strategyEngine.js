@@ -90,7 +90,7 @@ export class StrategyEngine {
     }
 
     async selectTimeframe(allOhlcData) {
-        const prompt = `Based on the OHLC data provided, which timeframe is the most interesting to trade on?
+        const prompt = `Based on the OHLC data provided, select a timeframe for a trading bot to trade on.
 Respond with a JSON object containing "reason" and "timeframe".
 The timeframe must be one of the following: '1 hour', '4 hour', '1 day', '1 week'.
 Do not include any other text.
