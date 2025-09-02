@@ -119,7 +119,13 @@ ${JSON.stringify(ohlcSummary, null, 2)}
         }
 
         try {
-            const decision = JSON.parse(text);
+            // Find and extract the JSON object from the text
+            const jsonMatch = text.match(/\{.*\}/s)?.[0];
+            if (!jsonMatch) {
+                log.error('Could not find a valid JSON object in the AI response. Returning default timeframe.');
+                return { timeframe: '1 day', reason: 'AI response malformed.' };
+            }
+            const decision = JSON.parse(jsonMatch);
             if (decision.timeframe && decision.reason) {
                 return decision;
             } else {
@@ -215,6 +221,7 @@ A. Momentum filter
         log.info(`API Response Received: ${text}`);
 
         try {
+            // Find and extract the JSON object from the text
             const jsonMatch = text.match(/\{.*\}/s)?.[0];
             if (!jsonMatch) {
                 log.error('Could not find a valid JSON object in the API response. Returning default signal.');
@@ -232,4 +239,4 @@ A. Momentum filter
     _fail(reason) {
         return { signal: 'HOLD', confidence: 0, stop_loss_distance_in_usd: 0, take_profit_distance_in_usd: 0, reason };
     }
-                    }
+}
