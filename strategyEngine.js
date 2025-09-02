@@ -101,6 +101,8 @@ export class StrategyEngine {
             }
         }
 
+        log.info('Data being sent to AI for timeframe selection:', ohlcSummary);
+
         const prompt = `Based on the OHLC data summaries below, which timeframe is the most interesting to trade on?
 Respond with a JSON object containing "reason" and "timeframe".
 The timeframe must be one of the following: '1 hour', '4 hour', '1 day', '1 week'.
@@ -210,7 +212,7 @@ A. Momentum filter
         }
 
         const prompt = this._prompt(marketData, timeframe);
-        log.info(`Calling Gemini API to generate signal for ${timeframe}...`);
+        log.info(`Calling Gemini to generate signal for ${timeframe}...`);
         const { ok, text, error } = await this._callWithRetry(prompt);
 
         if (!ok) {
