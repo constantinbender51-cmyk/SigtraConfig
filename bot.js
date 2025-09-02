@@ -27,6 +27,30 @@ let wasPositionOpen = true;
 let lastTradeDetails = null;
 let lastBalance = null;
 
+// Helper function to create a delay
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+// New function to log large data in smaller chunks to avoid rate limits
+async function logInChunks(title, data, chunkSize = 5000, delay = 1000) {
+    try {
+        const jsonString = JSON.stringify(data, null, 2);
+        const totalChunks = Math.ceil(jsonString.length / chunkSize);
+        log.info(`${title} - Logging in ${totalChunks} chunks to prevent rate limits.`);
+        for (let i = 0; i < totalChunks; i++) {
+            const start = i * chunkSize;
+            const end = start + chunkSize;
+            const chunk = jsonString.substring(start, end);
+            log.info(`${title} (Part ${i + 1}/${totalChunks}):\n`, chunk);
+            // Add delay between chunks
+            if (i < totalChunks - 1) {
+                await sleep(delay);
+            }
+        }
+    } catch (e) {
+        log.error(`Failed to log data in chunks for "${title}":`, e);
+    }
+}
+
 const createThreeMinuteCandles = (candles) => {
     const threeMinCandles = [];
     if (!candles || candles.length < 3) {
@@ -120,6 +144,7 @@ async function cycle() {
             return;
         }
 
+        await logInChunks('Prompt for Timeframe Selection', allOhlcData);
         const timeframeDecision = await strat.selectTimeframe(allOhlcData);
         log.info('AI Timeframe Decision:', timeframeDecision);
         const chosenTimeframe = timeframeDecision.timeframe;
@@ -161,6 +186,7 @@ async function cycle() {
 
             let signal;
             try {
+                await logInChunks('Prompt for Signal Generation', market);
                 signal = await strat.generateSignal(market, chosenTimeframe);
                 log.info('AI Signal Response:', signal);
                 log.info(`Signal generated: ${signal.signal} with confidence ${signal.confidence}.`);
