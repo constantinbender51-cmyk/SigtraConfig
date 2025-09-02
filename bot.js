@@ -19,7 +19,7 @@ const INTERVALS = {
     '1 week': 10080
 };
 const MIN_CONF = 25;
-const CYCLE_MS = 180_000;
+let CYCLE_MS = 1000 * 60 * 60;
 const TRADE_LOG_FILE = 'trades.json';
 const SPOT_OHLC_URL = 'https://api.kraken.com/0/public/OHLC';
 
@@ -50,28 +50,6 @@ async function logInChunks(title, data, chunkSize = 5000, delay = 1000) {
         log.error(`Failed to log data in chunks for "${title}":`, e);
     }
 }
-
-const createThreeMinuteCandles = (candles) => {
-    const threeMinCandles = [];
-    if (!candles || candles.length < 3) {
-        return threeMinCandles;
-    }
-    for (let i = 0; i < candles.length; i += 3) {
-        if (i + 2 < candles.length) {
-            const group = candles.slice(i, i + 3);
-            const newCandle = {
-                open: group[0].open,
-                high: Math.max(...group.map(c => c.high)),
-                low: Math.min(...group.map(c => c.low)),
-                close: group[2].close,
-                volume: group.reduce((sum, c) => sum + c.volume, 0),
-                time: group[2].time
-            };
-            threeMinCandles.push(newCandle);
-        }
-    }
-    return threeMinCandles;
-};
 
 const fetchKrakenData = async ({ pair = 'XBTUSD', interval, since } = {}) => {
     const params = { pair, interval };
@@ -144,16 +122,18 @@ async function cycle() {
             return;
         }
 
-        // Removed: await logInChunks('Prompt for Timeframe Selection', allOhlcData);
         const timeframeDecision = await strat.selectTimeframe(allOhlcData);
         log.info('AI Timeframe Decision:', timeframeDecision);
         const chosenTimeframe = timeframeDecision.timeframe;
         log.info(`AI selected "${chosenTimeframe}" as the most interesting timeframe to trade on.`);
 
+        // Update the cycle time based on the chosen timeframe
+        CYCLE_MS = INTERVALS[chosenTimeframe] * 60 * 1000;
+        log.info(`Updated cycle time to ${CYCLE_MS / 1000 / 60} minutes (${CYCLE_MS}ms).`);
+
         let market;
         try {
             const rawMarketData = await dataHandler.fetchAllData(OHLC_PAIR, INTERVALS[chosenTimeframe]);
-            rawMarketData.ohlc = createThreeMinuteCandles(rawMarketData.ohlc);
             market = rawMarketData;
         } catch (dataError) {
             log.error('Failed to fetch market data:', dataError);
@@ -186,7 +166,6 @@ async function cycle() {
 
             let signal;
             try {
-                // Removed: await logInChunks('Prompt for Signal Generation', market);
                 signal = await strat.generateSignal(market, chosenTimeframe);
                 log.info('AI Signal Response:', signal);
                 log.info(`Signal generated: ${signal.signal} with confidence ${signal.confidence}.`);
@@ -227,16 +206,14 @@ async function cycle() {
         }
     } catch (e) {
         log.error('An unhandled error occurred during the trading cycle:', e);
-    }
-}
-
-function loop() {
-    cycle().finally(() => setTimeout(loop, CYCLE_MS));
+    } finally {
+        setTimeout(cycle, CYCLE_MS);
+    }
 }
 
 startWebServer();
 log.info('Bot is starting up...');
-loop();
+cycle();
 
 process.on('SIGINT', () => {
     log.warn('Shutting down gracefully...');
