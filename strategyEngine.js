@@ -181,8 +181,6 @@ Indicators:
             return this._fail('API Error');
         }
 
-        log.info(`API Response Received: ${text}`);
-
         try {
             // Find and extract the JSON object from the text
             const jsonMatch = text.match(/\{.*\}/s)?.[0];
@@ -191,7 +189,6 @@ Indicators:
                 return this._fail('Parse error');
             }
             const signal = JSON.parse(jsonMatch);
-            log.info(`Successfully parsed signal: ${JSON.stringify(signal)}`);
             return signal;
         } catch (e) {
             log.error(`Failed to parse API response as JSON. Raw text: "${text}". Error: ${e.message}`);
