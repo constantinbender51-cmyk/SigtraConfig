@@ -89,8 +89,8 @@ export class StrategyEngine {
         }
     }
 
-    async selectTimeframe(allOhlcData) {
-        const prompt = `Based on the OHLC data provided, select a timeframe for a trading bot to trade on.
+    async selectTimeframeAndStrategy(allOhlcData) {
+        const timeframePrompt = `Based on the OHLC data provided, select a timeframe for a trading bot to trade on.
 Respond with a JSON object containing "reason" and "timeframe".
 The timeframe must be one of the following: '1 hour', '4 hour', '1 day', '1 week'.
 Do not include any other text.
@@ -100,34 +100,39 @@ ${JSON.stringify(allOhlcData, null, 2)}
 `;
 
         log.info('Calling Gemini to select timeframe...');
-        const { ok, text, error } = await this._callWithRetry(prompt);
+        const { ok, text, error } = await this._callWithRetry(timeframePrompt);
 
         if (!ok) {
             log.error('Failed to get timeframe decision from AI. Defaulting to 1 day.');
-            return { timeframe: '1 day', reason: 'AI failed to respond.' };
+            return { timeframe: '1 day', strategy: 'Default Strategy', reason: 'AI failed to respond.' };
         }
 
         try {
-            // Find and extract the JSON object from the text
             const jsonMatch = text.match(/\{.*\}/s)?.[0];
             if (!jsonMatch) {
-                log.error('Could not find a valid JSON object in the AI response. Returning default timeframe.');
-                return { timeframe: '1 day', reason: 'AI response malformed.' };
+                log.error('Could not find a valid JSON object in the AI response for timeframe. Returning default.');
+                return { timeframe: '1 day', strategy: 'Default Strategy', reason: 'AI response malformed.' };
             }
             const decision = JSON.parse(jsonMatch);
-            if (decision.timeframe && decision.reason) {
-                return decision;
-            } else {
-                log.error('AI response for timeframe selection was not in the expected format. Defaulting to 1 day.');
-                return { timeframe: '1 day', reason: 'AI response malformed.' };
+            if (!decision.timeframe || !decision.reason) {
+                log.error('AI response for timeframe was not in expected format. Defaulting to 1 day.');
+                return { timeframe: '1 day', strategy: 'Default Strategy', reason: 'AI response malformed.' };
             }
+
+            const strategyPrompt = `Based on this timeframe, select a strategy for a trading bot to adhere to. Timeframe: ${decision.timeframe}`;
+            log.info('Calling Gemini to select strategy...');
+            const strategyRes = await this._callWithRetry(strategyPrompt);
+            const strategy = strategyRes.ok ? strategyRes.text.trim() : 'Failed to select strategy.';
+            
+            return { timeframe: decision.timeframe, strategy: strategy, reason: decision.reason };
+
         } catch (e) {
             log.error(`Failed to parse AI response as JSON for timeframe selection. Raw text: "${text}". Error: ${e.message}`);
-            return { timeframe: '1 day', reason: 'AI response malformed.' };
+            return { timeframe: '1 day', strategy: 'Default Strategy', reason: 'AI response malformed.' };
         }
     }
 
-    _prompt(market, timeframe) {
+    _prompt(market, timeframe, strategy) {
         // Limit OHLC data to the last 52 candles for the prompt
         const ohlc = market.ohlc.slice(-52);
         const closes = ohlc.map(c => c.close);
@@ -151,10 +156,11 @@ ${JSON.stringify(allOhlcData, null, 2)}
             ? buildLast10ClosedFromRawFills(market.fills.fills, 10)
             : readLast10ClosedTradesFromFile();
         
-        // Log last10 for debugging as requested
         log.info('Logging last10 closed trades for debugging:', JSON.stringify(last10));
 
-        return `Based on the ${timeframe} Timeframe OHLC data, and the indicators below generate a signal json object including "signal" which is LONG SHORT or HOLD,"confidence" a value measuring calculated confluence between 0 and 10,"stop_loss_distance_in_usd" the distance from the current market price a stop loss order is to be initiated,"take_profit_distance_in_usd" the distance a take profit order is to be initiated, and"reason": a comprehensive explanation of your decisionmaking process
+        return `Based on the timeframe, strategy, ohlc data and indicators below decide your next action. Generate a json object containing "signal" which is LONG SHORT or HOLD, "confidence" a value measuring calculated confluence between 0 and 10,"stop_loss_distance_in_usd" the distance from the current market price a stop loss order is to be initiated,"take_profit_distance_in_usd" the distance a take profit order is to be initiated, and"reason": a comprehensive explanation of your decision making process
+Timeframe: ${timeframe}
+Strategy: ${strategy}
 
 OHLC Data for ${timeframe}: ${JSON.stringify(ohlc)}
 Indicators:
@@ -166,13 +172,13 @@ Indicators:
 `;
     }
 
-    async generateSignal(marketData, timeframe) {
+    async generateSignal(marketData, timeframe, strategy) {
         if (!marketData?.ohlc?.length) {
             log.error('Received an empty or invalid marketData object.');
             return this._fail('No OHLC');
         }
 
-        const prompt = this._prompt(marketData, timeframe);
+        const prompt = this._prompt(marketData, timeframe, strategy);
         log.info(`Calling Gemini to generate signal for ${timeframe}...`);
         const { ok, text, error } = await this._callWithRetry(prompt);
 
@@ -182,7 +188,6 @@ Indicators:
         }
 
         try {
-            // Find and extract the JSON object from the text
             const jsonMatch = text.match(/\{.*\}/s)?.[0];
             if (!jsonMatch) {
                 log.error('Could not find a valid JSON object in the API response. Returning default signal.');
