@@ -1,9 +1,8 @@
-// strategyEngine.js
 import fs from 'fs';
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
 import { log } from './logger.js';
 
-const BOT_START_TIME = new Date().toISOString(); // UTC “now” when module loads
+const BOT_START_TIME = new Date().toISOString(); 
 
 const readLast10ClosedTradesFromFile = () => {
     try {
@@ -18,20 +17,15 @@ const readLast10ClosedTradesFromFile = () => {
 function buildLast10ClosedFromRawFills(rawFills, n = 10) {
     if (!Array.isArray(rawFills) || rawFills.length === 0) return [];
 
-    // 1️⃣ discard everything earlier than bot launch
     const eligible = rawFills.filter(
         f => new Date(f.fillTime) >= new Date(BOT_START_TIME)
     );
-    // console.log('[FIFO-DEBUG] after start-time filter =', eligible.length);
-
     if (eligible.length === 0) return [];
 
-    // Reversing the fills from newest-to-oldest to oldest-to-newest for FIFO logic.
     const fills = [...eligible].reverse();
     const queue = [];
     const closed = [];
 
-    // 2️⃣ rest of FIFO logic unchanged …
     for (const f of fills) {
         const side = f.side === 'buy' ? 'LONG' : 'SHORT';
         if (!queue.length || queue.at(-1).side === side) {
@@ -95,7 +89,50 @@ export class StrategyEngine {
         }
     }
 
-    _prompt(market) {
+    async selectTimeframe(allOhlcData) {
+        const ohlcSummary = {};
+        for (const [timeframe, candles] of Object.entries(allOhlcData)) {
+            if (candles && candles.length > 0) {
+                ohlcSummary[timeframe] = {
+                    lastClose: candles.at(-1).close,
+                    averageClose: candles.reduce((sum, c) => sum + c.close, 0) / candles.length,
+                    candleCount: candles.length
+                };
+            }
+        }
+
+        const prompt = `Based on the OHLC data summaries below, which timeframe is the most interesting to trade on?
+Respond with a JSON object containing "reason" and "timeframe".
+The timeframe must be one of the following: '1 hour', '4 hour', '1 day', '1 week'.
+Do not include any other text.
+
+OHLC Data Summaries:
+${JSON.stringify(ohlcSummary, null, 2)}
+`;
+
+        log.info('Calling Gemini to select timeframe...');
+        const { ok, text, error } = await this._callWithRetry(prompt);
+
+        if (!ok) {
+            log.error('Failed to get timeframe decision from AI. Defaulting to 1 day.');
+            return { timeframe: '1 day', reason: 'AI failed to respond.' };
+        }
+
+        try {
+            const decision = JSON.parse(text);
+            if (decision.timeframe && decision.reason) {
+                return decision;
+            } else {
+                log.error('AI response for timeframe selection was not in the expected format. Defaulting to 1 day.');
+                return { timeframe: '1 day', reason: 'AI response malformed.' };
+            }
+        } catch (e) {
+            log.error(`Failed to parse AI response as JSON for timeframe selection. Raw text: "${text}". Error: ${e.message}`);
+            return { timeframe: '1 day', reason: 'AI response malformed.' };
+        }
+    }
+
+    _prompt(market, timeframe) {
         const closes = market.ohlc.map(c => c.close);
         const latest = closes.at(-1);
         const sma20 = closes.slice(-20).reduce((a, b) => a + b, 0) / 20;
@@ -117,9 +154,9 @@ export class StrategyEngine {
             ? buildLast10ClosedFromRawFills(market.fills.fills, 10)
             : readLast10ClosedTradesFromFile();
 
-        return `PF_XBTUSD Alpha Engine – 3-min cycle
+        return `PF_XBTUSD Alpha Engine – ${timeframe} cycle
 You are a high-frequency statistical trader operating exclusively on the PF_XBTUSD perpetual contract.
-Each 3-minute candle you emit exactly one JSON decision object.
+Each ${timeframe} candle you emit exactly one JSON decision object.
 You do not manage existing positions; you only propose the next intended trade (or cash).
 Output schema (mandatory, no extra keys):
 {"signal":"LONG"|"SHORT"|"HOLD","confidence":0-100,"stop_loss_distance_in_usd":<positive_number>,"take_profit_distance_in_usd":<positive_number>,"reason":"<max_12_words>"}
@@ -150,7 +187,7 @@ A. Momentum filter
  • SL distance must be identical in absolute USD for LONG and SHORT signals of the same bar.
  Reason field
  12-word max, e.g. “Long above SMA, bullish delta, SL 1500, TP 3800”.
- Candles (3m): ${JSON.stringify(market.ohlc)}
+ Candles (${timeframe}): ${JSON.stringify(market.ohlc)}
  Summary:
  - lastClose=${latest}
  - 20SMA=${sma20.toFixed(2)}
@@ -160,14 +197,14 @@ A. Momentum filter
  `;
     }
 
-    async generateSignal(marketData) {
+    async generateSignal(marketData, timeframe) {
         if (!marketData?.ohlc?.length) {
             log.error('Received an empty or invalid marketData object.');
             return this._fail('No OHLC');
         }
 
-        const prompt = this._prompt(marketData);
-        log.info('Calling Gemini API to generate signal...');
+        const prompt = this._prompt(marketData, timeframe);
+        log.info(`Calling Gemini API to generate signal for ${timeframe}...`);
         const { ok, text, error } = await this._callWithRetry(prompt);
 
         if (!ok) {
@@ -184,7 +221,7 @@ A. Momentum filter
                 return this._fail('Parse error');
             }
             const signal = JSON.parse(jsonMatch);
-            log.info(`Successfully parsed signal: ${JSON.stringify(signal)}`); // New log line
+            log.info(`Successfully parsed signal: ${JSON.stringify(signal)}`); 
             return signal;
         } catch (e) {
             log.error(`Failed to parse API response as JSON. Raw text: "${text}". Error: ${e.message}`);
@@ -195,4 +232,4 @@ A. Momentum filter
     _fail(reason) {
         return { signal: 'HOLD', confidence: 0, stop_loss_distance_in_usd: 0, take_profit_distance_in_usd: 0, reason };
     }
-}
+                    }
