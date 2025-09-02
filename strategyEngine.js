@@ -2,167 +2,154 @@ import fs from 'fs';
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
 import { log } from './logger.js';
 
-const BOT_START_TIME = new Date().toISOString(); 
+const BOT_START_TIME = new Date().toISOString(); 
 
 const readLast10ClosedTradesFromFile = () => {
-    try {
-        return JSON.parse(fs.readFileSync('./trades.json', 'utf8'))
-            .filter(t => t.exitTime)
-            .slice(-10);
-    } catch {
-        return [];
-    }
+    try {
+        return JSON.parse(fs.readFileSync('./trades.json', 'utf8'))
+            .filter(t => t.exitTime)
+            .slice(-10);
+    } catch {
+        return [];
+    }
 };
 
 function buildLast10ClosedFromRawFills(rawFills, n = 10) {
-    if (!Array.isArray(rawFills) || rawFills.length === 0) return [];
+    if (!Array.isArray(rawFills) || rawFills.length === 0) return [];
 
-    const eligible = rawFills.filter(
-        f => new Date(f.fillTime) >= new Date(BOT_START_TIME)
-    );
-    if (eligible.length === 0) return [];
+    const eligible = rawFills.filter(
+        f => new Date(f.fillTime) >= new Date(BOT_START_TIME)
+    );
+    if (eligible.length === 0) return [];
 
-    const fills = [...eligible].reverse();
-    const queue = [];
-    const closed = [];
+    const fills = [...eligible].reverse();
+    const queue = [];
+    const closed = [];
 
-    for (const f of fills) {
-        const side = f.side === 'buy' ? 'LONG' : 'SHORT';
-        if (!queue.length || queue.at(-1).side === side) {
-            queue.push({ side, entryTime: f.fillTime, entryPrice: f.price, size: f.size });
-            continue;
-        }
+    for (const f of fills) {
+        const side = f.side === 'buy' ? 'LONG' : 'SHORT';
+        if (!queue.length || queue.at(-1).side === side) {
+            queue.push({ side, entryTime: f.fillTime, entryPrice: f.price, size: f.size });
+            continue;
+        }
 
-        let remaining = f.size;
-        while (remaining > 0 && queue.length && queue[0].side !== side) {
-            const open = queue.shift();
-            const match = Math.min(remaining, open.size);
-            const pnl = (f.price - open.entryPrice) * match * (open.side === 'LONG' ? 1 : -1);
-            closed.push({
-                side: open.side,
-                entryTime: open.entryTime,
-                entryPrice: open.entryPrice,
-                exitTime: f.fillTime,
-                exitPrice: f.price,
-                size: match,
-                pnl
-            });
-            remaining -= match;
-            open.size -= match;
-            if (open.size > 0) queue.unshift(open);
-        }
+        let remaining = f.size;
+        while (remaining > 0 && queue.length && queue[0].side !== side) {
+            const open = queue.shift();
+            const match = Math.min(remaining, open.size);
+            const pnl = (f.price - open.entryPrice) * match * (open.side === 'LONG' ? 1 : -1);
+            closed.push({
+                side: open.side,
+                entryTime: open.entryTime,
+                entryPrice: open.entryPrice,
+                exitTime: f.fillTime,
+                exitPrice: f.price,
+                size: match,
+                pnl
+            });
+            remaining -= match;
+            open.size -= match;
+            if (open.size > 0) queue.unshift(open);
+        }
 
-        if (remaining > 0) {
-            queue.push({ side, entryTime: f.fillTime, entryPrice: f.price, size: remaining });
-        }
-    }
+        if (remaining > 0) {
+            queue.push({ side, entryTime: f.fillTime, entryPrice: f.price, size: remaining });
+        }
+    }
 
-    const last10 = closed.slice(-n).reverse();
-    return last10;
+    const last10 = closed.slice(-n).reverse();
+    return last10;
 }
 
 export class StrategyEngine {
-    constructor() {
-        if (!process.env.GEMINI_API_KEY) {
-            log.error('GEMINI_API_KEY environment variable is not set.');
-            throw new Error('API key missing');
-        }
-        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        const safety = [{ category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE }];
-        this.model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite', safetySettings: safety });
-    }
+    constructor() {
+        if (!process.env.GEMINI_API_KEY) {
+            log.error('GEMINI_API_KEY environment variable is not set.');
+            throw new Error('API key missing');
+        }
+        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+        const safety = [{ category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE }];
+        this.model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite', safetySettings: safety });
+    }
 
-    async _callWithRetry(prompt, max = 4) {
-        for (let i = 1; i <= max; i++) {
-            try {
-                const res = await this.model.generateContent(prompt);
-                const text = res.response.text?.();
-                if (!text?.length) throw new Error('Empty response');
-                return { ok: true, text };
-            } catch (err) {
-                log.error(`API Call failed on retry ${i} of ${max}`, err);
-                if (i === max) {
-                    return { ok: false, error: err };
-                }
-                await new Promise(r => setTimeout(r, 61_000));
-            }
-        }
-    }
+    async _callWithRetry(prompt, max = 4) {
+        for (let i = 1; i <= max; i++) {
+            try {
+                const res = await this.model.generateContent(prompt);
+                const text = res.response.text?.();
+                if (!text?.length) throw new Error('Empty response');
+                return { ok: true, text };
+            } catch (err) {
+                log.error(`API Call failed on retry ${i} of ${max}`, err);
+                if (i === max) {
+                    return { ok: false, error: err };
+                }
+                await new Promise(r => setTimeout(r, 61_000));
+            }
+        }
+    }
 
-    async selectTimeframe(allOhlcData) {
-        const ohlcSummary = {};
-        for (const [timeframe, candles] of Object.entries(allOhlcData)) {
-            if (candles && candles.length > 0) {
-                ohlcSummary[timeframe] = {
-                    lastClose: candles.at(-1).close,
-                    averageClose: candles.reduce((sum, c) => sum + c.close, 0) / candles.length,
-                    candleCount: candles.length
-                };
-            }
-        }
-
-        log.info('Data being sent to AI for timeframe selection:', ohlcSummary);
-
-        const prompt = `Based on the OHLC data summaries below, which timeframe is the most interesting to trade on?
+    async selectTimeframe(allOhlcData) {
+        const prompt = `Based on the OHLC data provided, which timeframe is the most interesting to trade on?
 Respond with a JSON object containing "reason" and "timeframe".
 The timeframe must be one of the following: '1 hour', '4 hour', '1 day', '1 week'.
 Do not include any other text.
 
-OHLC Data Summaries:
-${JSON.stringify(ohlcSummary, null, 2)}
+OHLC Data for all timeframes:
+${JSON.stringify(allOhlcData, null, 2)}
 `;
 
-        log.info('Calling Gemini to select timeframe...');
-        const { ok, text, error } = await this._callWithRetry(prompt);
+        log.info('Calling Gemini to select timeframe...');
+        const { ok, text, error } = await this._callWithRetry(prompt);
 
-        if (!ok) {
-            log.error('Failed to get timeframe decision from AI. Defaulting to 1 day.');
-            return { timeframe: '1 day', reason: 'AI failed to respond.' };
-        }
+        if (!ok) {
+            log.error('Failed to get timeframe decision from AI. Defaulting to 1 day.');
+            return { timeframe: '1 day', reason: 'AI failed to respond.' };
+        }
 
-        try {
-            // Find and extract the JSON object from the text
-            const jsonMatch = text.match(/\{.*\}/s)?.[0];
-            if (!jsonMatch) {
-                log.error('Could not find a valid JSON object in the AI response. Returning default timeframe.');
-                return { timeframe: '1 day', reason: 'AI response malformed.' };
-            }
-            const decision = JSON.parse(jsonMatch);
-            if (decision.timeframe && decision.reason) {
-                return decision;
-            } else {
-                log.error('AI response for timeframe selection was not in the expected format. Defaulting to 1 day.');
-                return { timeframe: '1 day', reason: 'AI response malformed.' };
-            }
-        } catch (e) {
-            log.error(`Failed to parse AI response as JSON for timeframe selection. Raw text: "${text}". Error: ${e.message}`);
-            return { timeframe: '1 day', reason: 'AI response malformed.' };
-        }
-    }
+        try {
+            // Find and extract the JSON object from the text
+            const jsonMatch = text.match(/\{.*\}/s)?.[0];
+            if (!jsonMatch) {
+                log.error('Could not find a valid JSON object in the AI response. Returning default timeframe.');
+                return { timeframe: '1 day', reason: 'AI response malformed.' };
+            }
+            const decision = JSON.parse(jsonMatch);
+            if (decision.timeframe && decision.reason) {
+                return decision;
+            } else {
+                log.error('AI response for timeframe selection was not in the expected format. Defaulting to 1 day.');
+                return { timeframe: '1 day', reason: 'AI response malformed.' };
+            }
+        } catch (e) {
+            log.error(`Failed to parse AI response as JSON for timeframe selection. Raw text: "${text}". Error: ${e.message}`);
+            return { timeframe: '1 day', reason: 'AI response malformed.' };
+        }
+    }
 
-    _prompt(market, timeframe) {
-        const closes = market.ohlc.map(c => c.close);
-        const latest = closes.at(-1);
-        const sma20 = closes.slice(-20).reduce((a, b) => a + b, 0) / 20;
-        const atr14 = (() => {
-            const trs = [];
-            for (let i = 1; i < 15; i++) {
-                const h = market.ohlc.at(-i).high;
-                const l = market.ohlc.at(-i).low;
-                const pc = market.ohlc.at(-i - 1)?.close ?? h;
-                trs.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)));
-            }
-            return trs.reduce((a, b) => a + b, 0) / 14;
-        })();
+    _prompt(market, timeframe) {
+        const closes = market.ohlc.map(c => c.close);
+        const latest = closes.at(-1);
+        const sma20 = closes.slice(-20).reduce((a, b) => a + b, 0) / 20;
+        const atr14 = (() => {
+            const trs = [];
+            for (let i = 1; i < 15; i++) {
+                const h = market.ohlc.at(-i).high;
+                const l = market.ohlc.at(-i).low;
+                const pc = market.ohlc.at(-i - 1)?.close ?? h;
+                trs.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)));
+            }
+            return trs.reduce((a, b) => a + b, 0) / 14;
+        })();
 
-        const momPct = ((latest - sma20) / sma20 * 100).toFixed(2);
-        const volPct = (atr14 / latest * 100).toFixed(2);
+        const momPct = ((latest - sma20) / sma20 * 100).toFixed(2);
+        const volPct = (atr14 / latest * 100).toFixed(2);
 
-        const last10 = market.fills?.fills
-            ? buildLast10ClosedFromRawFills(market.fills.fills, 10)
-            : readLast10ClosedTradesFromFile();
+        const last10 = market.fills?.fills
+            ? buildLast10ClosedFromRawFills(market.fills.fills, 10)
+            : readLast10ClosedTradesFromFile();
 
-        return `PF_XBTUSD Alpha Engine – ${timeframe} cycle
+        return `PF_XBTUSD Alpha Engine – ${timeframe} cycle
 You are a high-frequency statistical trader operating exclusively on the PF_XBTUSD perpetual contract.
 Each ${timeframe} candle you emit exactly one JSON decision object.
 You do not manage existing positions; you only propose the next intended trade (or cash).
@@ -171,74 +158,74 @@ Output schema (mandatory, no extra keys):
 You may place a concise reasoning paragraph above the JSON.
 The JSON object itself must still be the final, standalone block.
 Hard constraints
- 1. stop_loss_distance_in_usd
- • Compute 1.2 – 1.8 × 14-period ATR, round to nearest 0.5 USD, and return that absolute dollar value (e.g., 930.5).
- • Must be ≥ 0.5 USD. Never zero.
- 2. take_profit_distance_in_usd
- • Compute 1.5 – 4 × the dollar value chosen for stop-loss, round to nearest 0.5 USD, and return that absolute dollar value (e.g., 2100.0).
- • Must be ≥ 1 USD. Never zero.
- 3. confidence
- • 0–29: weak/no edge → HOLD.
- • 30–59: moderate edge.
- • 60–100: strong edge; only when momentum and order-flow agree.
+ 1. stop_loss_distance_in_usd
+ • Compute 1.2 – 1.8 × 14-period ATR, round to nearest 0.5 USD, and return that absolute dollar value (e.g., 930.5).
+ • Must be ≥ 0.5 USD. Never zero.
+ 2. take_profit_distance_in_usd
+ • Compute 1.5 – 4 × the dollar value chosen for stop-loss, round to nearest 0.5 USD, and return that absolute dollar value (e.g., 2100.0).
+ • Must be ≥ 1 USD. Never zero.
+ 3. confidence
+ • 0–29: weak/no edge → HOLD.
+ • 30–59: moderate edge.
+ • 60–100: strong edge; only when momentum and order-flow agree.
 Decision logic (ranked)
 A. Momentum filter
- • LONG only if (close > 20-SMA) AND (momentum > 0 %).
- • SHORT only if (close < 20-SMA) AND (momentum < 0 %).
- • Otherwise HOLD.
- B. Volatility regime
- • When ATR% < 0.8 %, widen TP/SL ratio toward 3.5.
- • When ATR% > 2 %, tighten TP/SL ratio toward 1.5.
- C. Micro-structure
- • If last10 net delta (buys-sells) > +500 contracts, raise confidence 10 pts for LONG, cut 10 pts for SHORT (reverse for negative delta).
- D. Risk symmetry
- • SL distance must be identical in absolute USD for LONG and SHORT signals of the same bar.
- Reason field
- 12-word max, e.g. “Long above SMA, bullish delta, SL 1500, TP 3800”.
- Candles (${timeframe}): ${JSON.stringify(market.ohlc)}
- Summary:
- - lastClose=${latest}
- - 20SMA=${sma20.toFixed(2)}
- - momentum=${momPct}%
- - 14ATR=${volPct}%
- last10=${JSON.stringify(last10)}
- `;
-    }
+ • LONG only if (close > 20-SMA) AND (momentum > 0 %).
+ • SHORT only if (close < 20-SMA) AND (momentum < 0 %).
+ • Otherwise HOLD.
+ B. Volatility regime
+ • When ATR% < 0.8 %, widen TP/SL ratio toward 3.5.
+ • When ATR% > 2 %, tighten TP/SL ratio toward 1.5.
+ C. Micro-structure
+ • If last10 net delta (buys-sells) > +500 contracts, raise confidence 10 pts for LONG, cut 10 pts for SHORT (reverse for negative delta).
+ D. Risk symmetry
+ • SL distance must be identical in absolute USD for LONG and SHORT signals of the same bar.
+ Reason field
+ 12-word max, e.g. “Long above SMA, bullish delta, SL 1500, TP 3800”.
+ Candles (${timeframe}): ${JSON.stringify(market.ohlc)}
+ Summary:
+ - lastClose=${latest}
+ - 20SMA=${sma20.toFixed(2)}
+ - momentum=${momPct}%
+ - 14ATR=${volPct}%
+ last10=${JSON.stringify(last10)}
+ `;
+    }
 
-    async generateSignal(marketData, timeframe) {
-        if (!marketData?.ohlc?.length) {
-            log.error('Received an empty or invalid marketData object.');
-            return this._fail('No OHLC');
-        }
+    async generateSignal(marketData, timeframe) {
+        if (!marketData?.ohlc?.length) {
+            log.error('Received an empty or invalid marketData object.');
+            return this._fail('No OHLC');
+        }
 
-        const prompt = this._prompt(marketData, timeframe);
-        log.info(`Calling Gemini to generate signal for ${timeframe}...`);
-        const { ok, text, error } = await this._callWithRetry(prompt);
+        const prompt = this._prompt(marketData, timeframe);
+        log.info(`Calling Gemini to generate signal for ${timeframe}...`);
+        const { ok, text, error } = await this._callWithRetry(prompt);
 
-        if (!ok) {
-            log.error('API Call Failed. Returning default signal.', error);
-            return this._fail('API Error');
-        }
+        if (!ok) {
+            log.error('API Call Failed. Returning default signal.', error);
+            return this._fail('API Error');
+        }
 
-        log.info(`API Response Received: ${text}`);
+        log.info(`API Response Received: ${text}`);
 
-        try {
-            // Find and extract the JSON object from the text
-            const jsonMatch = text.match(/\{.*\}/s)?.[0];
-            if (!jsonMatch) {
-                log.error('Could not find a valid JSON object in the API response. Returning default signal.');
-                return this._fail('Parse error');
-            }
-            const signal = JSON.parse(jsonMatch);
-            log.info(`Successfully parsed signal: ${JSON.stringify(signal)}`); 
-            return signal;
-        } catch (e) {
-            log.error(`Failed to parse API response as JSON. Raw text: "${text}". Error: ${e.message}`);
-            return this._fail('Parse error');
-        }
-    }
+        try {
+            // Find and extract the JSON object from the text
+            const jsonMatch = text.match(/\{.*\}/s)?.[0];
+            if (!jsonMatch) {
+                log.error('Could not find a valid JSON object in the API response. Returning default signal.');
+                return this._fail('Parse error');
+            }
+            const signal = JSON.parse(jsonMatch);
+            log.info(`Successfully parsed signal: ${JSON.stringify(signal)}`); 
+            return signal;
+        } catch (e) {
+            log.error(`Failed to parse API response as JSON. Raw text: "${text}". Error: ${e.message}`);
+            return this._fail('Parse error');
+        }
+    }
 
-    _fail(reason) {
-        return { signal: 'HOLD', confidence: 0, stop_loss_distance_in_usd: 0, take_profit_distance_in_usd: 0, reason };
-    }
+    _fail(reason) {
+        return { signal: 'HOLD', confidence: 0, stop_loss_distance_in_usd: 0, take_profit_distance_in_usd: 0, reason };
+    }
 }
