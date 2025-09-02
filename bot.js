@@ -18,7 +18,7 @@ const INTERVALS = {
     '1 day': 1440,
     '1 week': 10080
 };
-const MIN_CONF = 25;
+const MIN_CONF = 0;
 let CYCLE_MS = 1000 * 60 * 60;
 const TRADE_LOG_FILE = 'trades.json';
 const SPOT_OHLC_URL = 'https://api.kraken.com/0/public/OHLC';
