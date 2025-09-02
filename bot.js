@@ -6,35 +6,65 @@ import { StrategyEngine } from './strategyEngine.js';
 import { RiskManager } from './riskManager.js';
 import { ExecutionHandler } from './executionHandler.js';
 import { log } from './logger.js';
+import axios from 'axios';
 
-// Load environment variables and start the web server
 dotenv.config();
 
-/* ---------- constants ---------- */
 const PAIR = 'PF_XBTUSD';
 const OHLC_PAIR = 'XBTUSD';
-const MIN_CONF = 25;
-const CYCLE_MS = 180_000;
-const TRADE_LOG_FILE = 'trades.json';
-// New array of timeframes to fetch data for (in minutes)
-const TIME_FRAMES_MINUTES = {
+const INTERVALS = {
     '1 hour': 60,
     '4 hour': 240,
     '1 day': 1440,
     '1 week': 10080
 };
+const MIN_CONF = 25;
+const CYCLE_MS = 180_000;
+const TRADE_LOG_FILE = 'trades.json';
+const SPOT_OHLC_URL = 'https://api.kraken.com/0/public/OHLC';
 
-/* ---------- state ---------- */
-let wasPositionOpen = true; 
-let lastTradeDetails = null; 
-let lastBalance = null; 
+let wasPositionOpen = true;
+let lastTradeDetails = null;
+let lastBalance = null;
 
-/* ---------- helpers ---------- */
+const createThreeMinuteCandles = (candles) => {
+    const threeMinCandles = [];
+    if (!candles || candles.length < 3) {
+        return threeMinCandles;
+    }
+    for (let i = 0; i < candles.length; i += 3) {
+        if (i + 2 < candles.length) {
+            const group = candles.slice(i, i + 3);
+            const newCandle = {
+                open: group[0].open,
+                high: Math.max(...group.map(c => c.high)),
+                low: Math.min(...group.map(c => c.low)),
+                close: group[2].close,
+                volume: group.reduce((sum, c) => sum + c.volume, 0),
+                time: group[2].time
+            };
+            threeMinCandles.push(newCandle);
+        }
+    }
+    return threeMinCandles;
+};
 
-/**
- * Reads the trade log file, adds a new trade entry or updates an existing one, and writes the file back.
- * @param {object} tradeDetails - The trade object to be logged.
- */
+const fetchKrakenData = async ({ pair = 'XBTUSD', interval, since } = {}) => {
+    const params = { pair, interval };
+    if (since) params.since = since;
+    try {
+        const { data } = await axios.get(SPOT_OHLC_URL, { params });
+        if (data.error?.length) throw new Error(data.error.join(', '));
+        const key = Object.keys(data.result).find(k => k !== 'last');
+        return (data.result[key] || []).map(o => ({
+            date: new Date(o[0] * 1000).toISOString(),
+            open: +o[1], high: +o[2], low: +o[3], close: +o[4], volume: +o[6]
+        }));
+    } catch (e) {
+        return null;
+    }
+};
+
 const logTrade = async (tradeDetails) => {
     try {
         let trades = [];
@@ -48,9 +78,7 @@ const logTrade = async (tradeDetails) => {
                 throw readError;
             }
         }
-
         const existingTradeIndex = trades.findIndex(trade => trade.id === tradeDetails.id);
-
         if (existingTradeIndex !== -1) {
             trades[existingTradeIndex] = tradeDetails;
             log.info(`Overwriting existing trade with ID: ${tradeDetails.id}.`);
@@ -58,7 +86,6 @@ const logTrade = async (tradeDetails) => {
             trades.push(tradeDetails);
             log.info(`New trade entry added with ID: ${tradeDetails.id}.`);
         }
-
         await fs.writeFile(TRADE_LOG_FILE, JSON.stringify(trades, null, 2), 'utf8');
         log.info(`Trade details successfully logged to ${TRADE_LOG_FILE}.`);
     } catch (error) {
@@ -66,7 +93,6 @@ const logTrade = async (tradeDetails) => {
     }
 };
 
-/* ---------- trading cycle ---------- */
 async function cycle() {
     try {
         const { KRAKEN_API_KEY, KRAKEN_SECRET_KEY } = process.env;
@@ -75,50 +101,41 @@ async function cycle() {
             return;
         }
 
-        const data = new DataHandler(KRAKEN_API_KEY, KRAKEN_SECRET_KEY);
+        const dataHandler = new DataHandler(KRAKEN_API_KEY, KRAKEN_SECRET_KEY);
         const strat = new StrategyEngine();
         const risk = new RiskManager({ leverage: 10, stopLossMultiplier: 2, takeProfitMultiplier: 3, marginBuffer: 0.4 });
-        const exec = new ExecutionHandler(data.api);
+        const exec = new ExecutionHandler(dataHandler.api);
 
-        // Step 1: Fetch OHLC data for all specified timeframes
-        log.info('Fetching OHLC data for all timeframes: 1h, 4h, 1d, 1w...');
-        const allOhlcData = {};
-        for (const [name, interval] of Object.entries(TIME_FRAMES_MINUTES)) {
-            try {
-                const ohlc = await data.fetchOhlcData(OHLC_PAIR, interval);
-                allOhlcData[name] = ohlc;
-                log.info(`Successfully fetched ${name} data.`);
-            } catch (dataError) {
-                log.error(`Failed to fetch ${name} data:`, dataError);
-            }
-        }
-
-        if (Object.keys(allOhlcData).length === 0) {
-            log.warn('Skipping cycle due to missing OHLC data for all timeframes.');
+        let allOhlcData = {};
+        log.info('Fetching OHLC data for all timeframes...');
+        try {
+            const fetchPromises = Object.entries(INTERVALS).map(async ([timeframe, interval]) => {
+                const candles = await fetchKrakenData({ pair: OHLC_PAIR, interval });
+                allOhlcData[timeframe] = candles;
+            });
+            await Promise.all(fetchPromises);
+            log.info('OHLC data for all timeframes has been fetched.');
+        } catch (dataError) {
+            log.error('Failed to fetch all market data:', dataError);
             return;
         }
 
-        // Step 2: Use AI to select the most interesting timeframe
-        log.info('Asking AI to select the most interesting timeframe to trade on...');
         const timeframeDecision = await strat.selectTimeframe(allOhlcData);
-        log.info(`AI recommends trading on the ${timeframeDecision.timeframe} timeframe. Reason: ${timeframeDecision.reason}`);
+        const chosenTimeframe = timeframeDecision.timeframe;
+        log.info(`AI selected "${chosenTimeframe}" as the most interesting timeframe to trade on.`);
 
-        const chosenTimeframeName = timeframeDecision.timeframe;
-        const chosenTimeframeMinutes = TIME_FRAMES_MINUTES[chosenTimeframeName];
-
-        // Step 3: Fetch all market data for the chosen timeframe
         let market;
         try {
-            const rawMarketData = await data.fetchAllData(OHLC_PAIR, chosenTimeframeMinutes);
-            log.info(`Data fetched for ${OHLC_PAIR} on the ${chosenTimeframeName} timeframe.`);
+            const rawMarketData = await dataHandler.fetchAllData(OHLC_PAIR, INTERVALS[chosenTimeframe]);
+            rawMarketData.ohlc = createThreeMinuteCandles(rawMarketData.ohlc);
             market = rawMarketData;
         } catch (dataError) {
-            log.error('Failed to fetch market data for the chosen timeframe:', dataError);
+            log.error('Failed to fetch market data:', dataError);
             return;
         }
 
         if (!market || market.balance === undefined || !market.ohlc || !market.ohlc.length) {
-            log.warn('Skipping cycle due to missing market data or balance for the chosen timeframe.');
+            log.warn('Skipping cycle due to missing market data or balance.');
             return;
         }
 
@@ -137,15 +154,14 @@ async function cycle() {
                 }
                 lastBalance = market.balance;
                 log.info(`New balance: ${market.balance.toFixed(2)} USD.`);
-                lastTradeDetails = null; 
+                lastTradeDetails = null;
                 wasPositionOpen = false;
             }
 
-            // Step 4: Generate a signal for the chosen timeframe
             let signal;
             try {
-                signal = await strat.generateSignal(market, chosenTimeframeName);
-                log.info(`Signal generated for ${chosenTimeframeName}: ${signal.signal} with confidence ${signal.confidence}.`);
+                signal = await strat.generateSignal(market, chosenTimeframe);
+                log.info(`Signal generated: ${signal.signal} with confidence ${signal.confidence}.`);
             } catch (signalError) {
                 log.error('Failed to generate trading signal:', signalError);
                 return;
@@ -167,10 +183,8 @@ async function cycle() {
                             takeProfit: params.takeProfit,
                             pnl: null
                         };
-
                         lastTradeDetails = tradeLog;
                         await logTrade(tradeLog);
-
                         log.info(`Order placed for ${PAIR}: ${signal.signal}.`);
                     } catch (orderError) {
                         log.error('Failed to place order:', orderError);
@@ -188,17 +202,14 @@ async function cycle() {
     }
 }
 
-/* ---------- loop ---------- */
 function loop() {
     cycle().finally(() => setTimeout(loop, CYCLE_MS));
 }
 
-// Start the web server and the trading loop
 startWebServer();
 log.info('Bot is starting up...');
 loop();
 
-/* ---------- graceful shutdown ---------- */
 process.on('SIGINT', () => {
     log.warn('Shutting down gracefully...');
     process.exit(0);
