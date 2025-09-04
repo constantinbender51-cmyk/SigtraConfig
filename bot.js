@@ -132,8 +132,8 @@ async function cycle() {
             else TfConsist = 0;
         commit = {
                 prevTf: chosenTimeframe,
-                prevR: timeframeDecison.reason,
-                prevS: timeframeDeciosion.strategy,
+                prevR: timeframeDecision.reason,
+                prevS: timeframeDecision.strategy,
                 tfC: TfConsist
                   };
 
