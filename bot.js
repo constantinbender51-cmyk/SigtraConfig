@@ -122,7 +122,7 @@ async function cycle() {
             return;
         }
 
-        const timeframeDecision = await strat.selectTimeframe(allOhlcData);
+        const timeframeDecision = await strat.selectTimeframeAndStrategy(allOhlcData);
         log.info('AI Timeframe Decision:', timeframeDecision);
         const chosenTimeframe = timeframeDecision.timeframe;
         log.info(`AI selected "${chosenTimeframe}" as the most interesting timeframe to trade on.`);
