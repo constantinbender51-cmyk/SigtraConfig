@@ -90,9 +90,10 @@ export class StrategyEngine {
     }
 
     async selectTimeframeAndStrategy(allOhlcData) {
-        const timeframePrompt = `Based on the OHLC data provided, select a timeframe for a trading bot to trade on.
+        const timeframePrompt = `Based on the OHLC data provided, select a timeframe for a trading bot to trade on and describe the particularities of that timeframe.
 Respond with a JSON object containing "reason" and "timeframe".
 The timeframe must be one of the following: '1 hour', '4 hour', '1 day', '1 week'.
+Reason must be a description and reason of your choice.
 Do not include any other text.
 
 OHLC Data for all timeframes:
@@ -119,7 +120,7 @@ ${JSON.stringify(allOhlcData, null, 2)}
                 return { timeframe: '1 day', strategy: 'Default Strategy', reason: 'AI response malformed.' };
             }
 
-            const strategyPrompt = `Based on this timeframe, select a strategy for a trading bot to adhere to. Timeframe: ${decision.timeframe}`;
+            const strategyPrompt = `Based on this timeframe and the reason for choosing it, select a strategy for a PF_XBTUSD trading bot to adhere to. Timeframe: ${decision.timeframe}\n\nReason: ${decision.reason}`;
             log.info('Calling Gemini to select strategy...');
             const strategyRes = await this._callWithRetry(strategyPrompt);
             const strategy = strategyRes.ok ? strategyRes.text.trim() : 'Failed to select strategy.';
