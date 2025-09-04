@@ -124,7 +124,7 @@ Upheld for ${commit.tfC} cycles
                 return { timeframe: '1 day', strategy: 'Default Strategy', reason: 'AI response malformed.' };
             }
 
-            const strategyPrompt = `Based on this timeframe and the reason for choosing it, select a strategy for a PF_XBTUSD trading bot to adhere to. Timeframe: ${decision.timeframe}\n\nReason: ${decision.reason}`;
+            const strategyPrompt = `Based on this timeframe and the reason for choosing it, select a strategy for a PF_XBTUSD trading bot with a risk tolerance of 2% of capital per trade and a dynamic approach to strategy to adhere to. Timeframe: ${decision.timeframe}\n\nReason: ${decision.reason}`;
             log.info('Calling Gemini to select strategy...');
             const strategyRes = await this._callWithRetry(strategyPrompt);
             const strategy = strategyRes.ok ? strategyRes.text.trim() : 'Failed to select strategy.';
