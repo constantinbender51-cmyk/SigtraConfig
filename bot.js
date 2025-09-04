@@ -27,6 +27,7 @@ let wasPositionOpen = true;
 let lastTradeDetails = null;
 let lastBalance = null;
 let commit = null;
+let TfConsist = 0;
 
 // Helper function to create a delay
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -127,8 +128,14 @@ async function cycle() {
         log.info('AI Timeframe Decision:', timeframeDecision);
         const chosenTimeframe = timeframeDecision.timeframe;
         log.info(`AI selected "${chosenTimeframe}" as the most interesting timeframe to trade on.`);
-        commit = `Previous timeframe: ${chosenTimeframe}, 
-                Reason: ${timeframeDecison.reason}`;
+            if (chosenTimeframe === commit.prevTf) TfConsist++;
+            else TfConsist = 0;
+        commit = {
+                prevTf: chosenTimeframe,
+                prevR: timeframeDecison.reason,
+                prevS: timeframeDeciosion.strategy,
+                tfC: TfConsist
+                  };
 
         // Update the cycle time based on the chosen timeframe
         CYCLE_MS = INTERVALS[chosenTimeframe] * 60 * 1000;
@@ -169,7 +176,7 @@ async function cycle() {
 
             let signal;
             try {
-                signal = await strat.generateSignal(market, chosenTimeframe);
+                signal = await strat.generateSignal(market, chosenTimeframe, commit);
                 log.info('AI Signal Response:', signal);
                 log.info(`Signal generated: ${signal.signal} with confidence ${signal.confidence}.`);
             } catch (signalError) {
