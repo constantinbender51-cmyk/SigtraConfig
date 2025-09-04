@@ -163,7 +163,7 @@ Upheld for ${commit.tfC} cycles
         
         log.info('Logging last10 closed trades for debugging:', JSON.stringify(last10));
 
-        return `Based on the timeframe, strategy, ohlc data and indicators below decide your next action. Generate a json object containing "signal" which is LONG SHORT or HOLD, "confidence" a value measuring calculated confluence between 0 and 10,"stop_loss_distance_in_usd" the distance from the current market price a stop loss order is to be initiated,"take_profit_distance_in_usd" the distance a take profit order is to be initiated, and "reason": your reasoning
+        return `Execute the strategy. Generate a json object containing "signal" which is LONG SHORT or HOLD, "confidence" a value measuring calculated confluence between 0 and 10,"stop_loss_distance_in_usd" the distance from the current market price a stop loss order is to be initiated,"take_profit_distance_in_usd" the distance a take profit order is to be initiated, and "reason": your reasoning
 Timeframe: ${timeframe}
 Strategy: ${strategy}
 
