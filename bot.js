@@ -26,7 +26,7 @@ const SPOT_OHLC_URL = 'https://api.kraken.com/0/public/OHLC';
 let wasPositionOpen = true;
 let lastTradeDetails = null;
 let lastBalance = null;
-let commit = null;
+let commit = {};
 let TfConsist = 0;
 
 // Helper function to create a delay
