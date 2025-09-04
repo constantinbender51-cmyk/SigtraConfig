@@ -98,7 +98,10 @@ Do not include any other text.
 OHLC Data for all timeframes:
 ${JSON.stringify(allOhlcData, null, 2)}
 
-Commmitment: "${commit}"
+Previous timeframe: ${commit.prevTf}
+Reason: "${commit.prevR}"
+Strategy: "${commit.prevS}"
+Upheld for ${commit.tfC} cycles
 `;
 
         log.info('Calling Gemini to select timeframe...');
@@ -180,7 +183,7 @@ Indicators:
             return this._fail('No OHLC');
         }
 
-        const prompt = this._prompt(marketData, timeframe, strategy);
+        const prompt = this._prompt(marketData, timeframe, strategy, commit = {});
         log.info(`Calling Gemini to generate signal for ${timeframe}...`);
         const { ok, text, error } = await this._callWithRetry(prompt);
 
