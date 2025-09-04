@@ -26,6 +26,7 @@ const SPOT_OHLC_URL = 'https://api.kraken.com/0/public/OHLC';
 let wasPositionOpen = true;
 let lastTradeDetails = null;
 let lastBalance = null;
+let commit = null;
 
 // Helper function to create a delay
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -122,10 +123,12 @@ async function cycle() {
             return;
         }
 
-        const timeframeDecision = await strat.selectTimeframeAndStrategy(allOhlcData);
+        const timeframeDecision = await strat.selectTimeframeAndStrategy(allOhlcData, commit);
         log.info('AI Timeframe Decision:', timeframeDecision);
         const chosenTimeframe = timeframeDecision.timeframe;
         log.info(`AI selected "${chosenTimeframe}" as the most interesting timeframe to trade on.`);
+        commit = `Previous timeframe: ${chosenTimeframe}, 
+                Reason: ${timeframeDecison.reason}`;
 
         // Update the cycle time based on the chosen timeframe
         CYCLE_MS = INTERVALS[chosenTimeframe] * 60 * 1000;
