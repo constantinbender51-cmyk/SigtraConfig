@@ -183,7 +183,7 @@ Indicators:
             return this._fail('No OHLC');
         }
 
-        const prompt = this._prompt(marketData, timeframe, strategy, commit = {});
+        const prompt = this._prompt(marketData, timeframe, strategy);
         log.info(`Calling Gemini to generate signal for ${timeframe}...`);
         const { ok, text, error } = await this._callWithRetry(prompt);
 
