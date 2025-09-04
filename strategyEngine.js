@@ -89,15 +89,16 @@ export class StrategyEngine {
         }
     }
 
-    async selectTimeframeAndStrategy(allOhlcData) {
-        const timeframePrompt = `Based on the OHLC data provided, select a timeframe for a trading bot to trade on and describe the particularities of that timeframe.
+    async selectTimeframeAndStrategy(allOhlcData, commit) {
+        const timeframePrompt = `Based on the OHLC data provided and recent strategy commitment, select a timeframe for a trading bot to trade on.
 Respond with a JSON object containing "reason" and "timeframe".
 The timeframe must be one of the following: '1 hour', '4 hour', '1 day', '1 week'.
-Reason must be a description and reason of your choice.
 Do not include any other text.
 
 OHLC Data for all timeframes:
 ${JSON.stringify(allOhlcData, null, 2)}
+
+Commmitment: "${commit}"
 `;
 
         log.info('Calling Gemini to select timeframe...');
@@ -159,7 +160,7 @@ ${JSON.stringify(allOhlcData, null, 2)}
         
         log.info('Logging last10 closed trades for debugging:', JSON.stringify(last10));
 
-        return `Based on the timeframe, strategy, ohlc data and indicators below decide your next action. Generate a json object containing "signal" which is LONG SHORT or HOLD, "confidence" a value measuring calculated confluence between 0 and 10,"stop_loss_distance_in_usd" the distance from the current market price a stop loss order is to be initiated,"take_profit_distance_in_usd" the distance a take profit order is to be initiated, and"reason": a comprehensive explanation of your decision making process
+        return `Based on the timeframe, strategy, ohlc data and indicators below decide your next action. Generate a json object containing "signal" which is LONG SHORT or HOLD, "confidence" a value measuring calculated confluence between 0 and 10,"stop_loss_distance_in_usd" the distance from the current market price a stop loss order is to be initiated,"take_profit_distance_in_usd" the distance a take profit order is to be initiated, and "reason": your reasoning
 Timeframe: ${timeframe}
 Strategy: ${strategy}
 
